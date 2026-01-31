@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+      }
+      .card {
+        background: #111827;
+        padding: 32px;
+        border-radius: 12px;
+        width: 380px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+      }
+      h1 {
+        margin: 0 0 16px 0;
+        font-size: 22px;
+      }
+      label {
+        display: block;
+        margin: 12px 0 6px;
+        font-size: 13px;
+        color: #94a3b8;
+      }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+        background: #0b1220;
+        color: #e2e8f0;
+        outline: none;
+      }
+      button {
+        width: 100%;
+        margin-top: 18px;
+        padding: 10px 12px;
+        border: 0;
+        border-radius: 8px;
+        background: #2563eb;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .note {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #64748b;
+      }
+      .status {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script>
+      const { useState } = React;
+
+      const API_BASE = (() => {
+        const { protocol, hostname, port, origin } = window.location;
+        if (!origin || origin === "null") {
+          return `${protocol}//${hostname}:8000`;
+        }
+        if (hostname.includes("-3000.") && hostname.endsWith(".app.github.dev")) {
+          return `${protocol}//${hostname.replace("-3000.", "-8000.")}`;
+        }
+        if (port && port !== "8000") {
+          return `${protocol}//${hostname}:8000`;
+        }
+        return origin;
+      })();
+
+      function Login() {
+        const [username, setUsername] = useState("");
+        const [password, setPassword] = useState("");
+        const [status, setStatus] = useState("");
+
+        const onSubmit = async (e) => {
+          e.preventDefault();
+          const trimmedUser = username.trim();
+          if (trimmedUser.length < 3) {
+            setStatus("Username must be at least 3 characters.");
+            return;
+          }
+          if (password.length < 8) {
+            setStatus("Password must be at least 8 characters.");
+            return;
+          }
+          setStatus("Checking backend...");
+
+          try {
+            const res = await fetch(`${API_BASE}/auth/login`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: trimmedUser, password })
+            });
+            if (!res.ok) {
+              setStatus("Login failed");
+              return;
+            }
+            const data = await res.json();
+            localStorage.setItem("access_token", data.access_token);
+            setStatus("Login success. Token stored.");
+          } catch (err) {
+            setStatus("Login failed");
+          }
+        };
+
+        const onRegister = async () => {
+          const trimmedUser = username.trim();
+          if (trimmedUser.length < 3) {
+            setStatus("Username must be at least 3 characters.");
+            return;
+          }
+          if (password.length < 8) {
+            setStatus("Password must be at least 8 characters.");
+            return;
+          }
+          setStatus("Registering...");
+          try {
+            const res = await fetch(`${API_BASE}/auth/register`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username: trimmedUser, password })
+            });
+            if (!res.ok) {
+              setStatus("Register failed");
+              return;
+            }
+            const data = await res.json();
+            localStorage.setItem("access_token", data.access_token);
+            setStatus("Register success. Token stored.");
+          } catch (err) {
+            setStatus("Register failed");
+          }
+        };
+
+        return React.createElement(
+          "div",
+          { className: "card" },
+          React.createElement("h1", null, "Sign in"),
+          React.createElement(
+            "form",
+            { onSubmit },
+            React.createElement("label", { htmlFor: "username" }, "Username"),
+            React.createElement("input", {
+              id: "username",
+              name: "username",
+              type: "text",
+              value: username,
+              onChange: (e) => setUsername(e.target.value),
+              placeholder: "Enter username",
+            }),
+            React.createElement("label", { htmlFor: "password" }, "Password"),
+            React.createElement("input", {
+              id: "password",
+              name: "password",
+              type: "password",
+              value: password,
+              onChange: (e) => setPassword(e.target.value),
+              placeholder: "Enter password",
+            }),
+            React.createElement("button", { type: "submit" }, "Login"),
+            React.createElement(
+              "button",
+              { type: "button", style: { marginTop: "10px", background: "#475569" }, onClick: onRegister },
+              "Register"
+            ),
+            React.createElement("div", { className: "note" }, "Uses backend /auth endpoints and stores token locally."),
+            status ? React.createElement("div", { className: "status" }, status) : null
+          )
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(React.createElement(Login));
+    </script>
+
+    <div>
+      <button id="fetchKeepaData" onclick="fetchKeepaData()">Fetch Keepa Data</button>
+      <div id="keepaResults" style="margin-top: 20px;">
+          <!-- Results will be displayed here -->
+      </div>
+    </div>
+
+    <script>
+        async function fetchKeepaData() {
+            const resultsDiv = document.getElementById('keepaResults');
+            resultsDiv.innerHTML = 'Loading...';
+
+            try {
+                const response = await fetch('http://0.0.0.0:8000/keepa/product-finder?sort=current_SALES&sort=asc&sort=monthlySold&sort=desc&productType=0&productType=1&productType=2&perPage=50&page=0');
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                resultsDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                resultsDiv.innerHTML = `Error fetching data: ${error.message}`;
+            }
+        }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Finder - Keepa API</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            padding: 24px;
+            border-radius: 12px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            color: #60a5fa;
+        }
+
+        .header p {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        .status-bar {
+            background: #1e293b;
+            padding: 12px 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #22c55e;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-text {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .tokens-info {
+            margin-left: auto;
+            font-size: 13px;
+            color: #60a5fa;
+        }
+
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .card h2 {
+            font-size: 20px;
+            margin-bottom: 16px;
+            color: #e2e8f0;
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .filter-group label {
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .filter-group input,
+        .filter-group select {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #e2e8f0;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .filter-group input:focus,
+        .filter-group select:focus {
+            border-color: #60a5fa;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            border: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+        }
+
+        .btn-secondary {
+            background: #475569;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #334155;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #60a5fa;
+        }
+
+        .spinner {
+            border: 3px solid #334155;
+            border-top: 3px solid #60a5fa;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .results-table th {
+            background: #0f172a;
+            padding: 12px;
+            text-align: left;
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 600;
+            border-bottom: 2px solid #334155;
+        }
+
+        .results-table td {
+            padding: 12px;
+            border-bottom: 1px solid #334155;
+            font-size: 14px;
+        }
+
+        .results-table tr:hover {
+            background: #0f172a;
+        }
+
+        .asin-link {
+            color: #60a5fa;
+            text-decoration: none;
+        }
+
+        .asin-link:hover {
+            text-decoration: underline;
+        }
+
+        .error-message {
+            background: #7f1d1d;
+            border: 1px solid #991b1b;
+            border-radius: 8px;
+            padding: 16px;
+            color: #fecaca;
+            margin-top: 20px;
+        }
+
+        .success-message {
+            background: #065f46;
+            border: 1px solid #059669;
+            border-radius: 8px;
+            padding: 16px;
+            color: #a7f3d0;
+            margin-top: 20px;
+        }
+
+        .product-image {
+            width: 60px;
+            height: 60px;
+            object-fit: contain;
+            border-radius: 4px;
+        }
+
+        .pagination {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .page-info {
+            color: #94a3b8;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔎 Product Finder</h1>
+            <p>Search Amazon products using Keepa API with powerful filters</p>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <span class="status-text" id="statusText">Ready</span>
+            <span class="tokens-info" id="tokensInfo">Keepa: 1200 tokens</span>
+        </div>
+
+        <div class="card">
+            <h2>Search Filters</h2>
+            
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label for="domain">Amazon Domain</label>
+                    <select id="domain" onchange="loadCategories()">
+                        <option value="1">🇺🇸 United States (amazon.com)</option>
+                        <option value="2">🇬🇧 United Kingdom (amazon.co.uk)</option>
+                        <option value="3">🇩🇪 Germany (amazon.de)</option>
+                        <option value="4">🇫🇷 France (amazon.fr)</option>
+                        <option value="5">🇯🇵 Japan (amazon.co.jp)</option>
+                        <option value="6">🇨🇦 Canada (amazon.ca)</option>
+                        <option value="8">🇮🇹 Italy (amazon.it)</option>
+                        <option value="9">🇪🇸 Spain (amazon.es)</option>
+                        <option value="10">🇮🇳 India (amazon.in)</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="category">Category</label>
+                    <select id="category">
+                        <option value="">Loading categories...</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label for="salesRankMin">Min Sales Rank</label>
+                    <input type="number" id="salesRankMin" placeholder="e.g., 1">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="salesRankMax">Max Sales Rank</label>
+                    <input type="number" id="salesRankMax" placeholder="e.g., 50000">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="priceMin">Min Price</label>
+                    <input type="number" id="priceMin" placeholder="e.g., 100" step="0.01">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="priceMax">Max Price</label>
+                    <input type="number" id="priceMax" placeholder="e.g., 5000" step="0.01">
+                </div>
+                
+                <div class="filter-group">
+                    <label for="perPage">Results per page</label>
+                    <select id="perPage">
+                        <option value="10">10</option>
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="searchProducts()" id="searchBtn">
+                    🔍 Search Products
+                </button>
+                <button class="btn btn-secondary" onclick="clearFilters()">
+                    ✖ Clear Filters
+                </button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Results</h2>
+            <div id="resultsContainer">
+                <p style="color: #64748b; text-align: center; padding: 40px;">
+                    Click "Search Products" to start finding opportunities
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = (() => {
+            const { protocol, hostname } = window.location;
+            if (hostname.includes('-8000.') && hostname.endsWith('.app.github.dev')) {
+                return `${protocol}//${hostname}`;
+            }
+            if (hostname.includes('-3000.') && hostname.endsWith('.app.github.dev')) {
+                return `${protocol}//${hostname.replace('-3000.', '-8000.')}`;
+            }
+            return `${protocol}//${hostname}:8000`;
+        })();
+
+        let currentPage = 0;
+        let totalProducts = 0;
+        let categoryCache = {};
+
+        async function checkKeepaHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/keepa/health`);
+                const data = await response.json();
+                document.getElementById('tokensInfo').textContent = `Keepa: ${data.tokens_left} tokens`;
+                document.getElementById('statusText').textContent = 'Connected';
+                document.getElementById('statusIndicator').style.background = '#22c55e';
+            } catch (error) {
+                document.getElementById('statusText').textContent = 'API Error';
+                document.getElementById('statusIndicator').style.background = '#ef4444';
+            }
+        }
+
+        async function loadCategories() {
+            const domain = parseInt(document.getElementById('domain').value);
+            const categorySelect = document.getElementById('category');
+            
+            // Check if we have cached categories for this domain
+            if (categoryCache[domain]) {
+                populateCategorySelect(categoryCache[domain]);
+                return;
+            }
+
+            categorySelect.innerHTML = '<option value="">Loading categories...</option>';
+
+            try {
+                const url = `${API_BASE}/keepa/category?domain=${domain}&category=0&include_parents=0`;
+                console.log('Fetching categories from:', url);
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Categories loaded:', data);
+                categoryCache[domain] = data;
+                populateCategorySelect(data);
+            } catch (error) {
+                categorySelect.innerHTML = `<option value="">Error loading categories</option>`;
+                console.error('Error loading categories:', error);
+            }
+        }
+
+        function populateCategorySelect(data) {
+            const categorySelect = document.getElementById('category');
+            let html = '<option value="">All Categories</option>';
+
+            if (data.categories && typeof data.categories === 'object') {
+                // data.categories is an object with category IDs as keys
+                Object.entries(data.categories).forEach(([catId, category]) => {
+                    const categoryId = category.catId || catId;
+                    const categoryName = category.name || `Category ${categoryId}`;
+                    const productCount = category.productCount || 0;
+                    html += `<option value="${categoryId}">${categoryName} (${productCount.toLocaleString()})</option>`;
+                });
+            }
+
+            categorySelect.innerHTML = html;
+        }
+
+        async function searchProducts() {
+            const resultsContainer = document.getElementById('resultsContainer');
+            const searchBtn = document.getElementById('searchBtn');
+            
+            searchBtn.disabled = true;
+            resultsContainer.innerHTML = '<div class="loading"><div class="spinner"></div><p>Searching products...</p></div>';
+
+            const domain = parseInt(document.getElementById('domain').value);
+            const categoryId = document.getElementById('category').value;
+            const selection = {
+                sort: [["current_SALES", "asc"], ["monthlySold", "desc"]],
+                productType: [0, 1, 2],
+                perPage: parseInt(document.getElementById('perPage').value),
+                page: currentPage
+            };
+
+            // Add category filter if selected
+            if (categoryId) {
+                selection.category = [parseInt(categoryId)];
+            }
+
+            const salesRankMin = document.getElementById('salesRankMin').value;
+            const salesRankMax = document.getElementById('salesRankMax').value;
+            const priceMin = document.getElementById('priceMin').value;
+            const priceMax = document.getElementById('priceMax').value;
+
+            if (salesRankMin || salesRankMax) {
+                selection.current_SALES = [
+                    salesRankMin ? parseInt(salesRankMin) : 0,
+                    salesRankMax ? parseInt(salesRankMax) : 999999
+                ];
+            }
+
+            if (priceMin || priceMax) {
+                selection.current_AMAZON = [
+                    priceMin ? Math.round(parseFloat(priceMin) * 100) : 0,
+                    priceMax ? Math.round(parseFloat(priceMax) * 100) : 999999
+                ];
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/keepa/product-finder`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        domain: domain,
+                        selection: selection
+                    })
+                });
+
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || `HTTP error! status: ${response.status}`);
+                }
+
+                displayResults(data);
+                
+            } catch (error) {
+                resultsContainer.innerHTML = `<div class="error-message"><strong>Error:</strong> ${error.message}</div>`;
+                console.error('Full error:', error);
+            } finally {
+                searchBtn.disabled = false;
+                checkKeepaHealth();
+            }
+        }
+
+        function displayResults(data) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            
+            console.log('Full API response:', data);
+            
+            if (!data.products || data.products.length === 0) {
+                let errorMsg = `<strong>⚠️ No Products Found</strong>`;
+                
+                // Check for API errors
+                if (data.detail) {
+                    errorMsg += `<br><br><strong>Error:</strong> ${data.detail}`;
+                }
+                
+                // Add diagnostic info
+                errorMsg += `<br><br><strong>Diagnostic Info:</strong><br>`;
+                errorMsg += `• Tokens Left: ${data.tokensLeft || 'N/A'}<br>`;
+                errorMsg += `• Processing Time: ${data.processingTimeInMs || 'N/A'}ms<br>`;
+                
+                // Add helpful suggestions
+                errorMsg += `<br><strong>Why no products?</strong><br>`;
+                errorMsg += `• Your Keepa API key may not have <strong>search permissions</strong><br>`;
+                errorMsg += `• Free/trial plans typically only include category browsing<br>`;
+                errorMsg += `• Try browsing categories instead of searching<br>`;
+                
+                errorMsg += `<br><strong>Solutions:</strong><br>`;
+                errorMsg += `1. <strong>Upgrade Keepa Plan</strong> - Enable the product search endpoint<br>`;
+                errorMsg += `2. <strong>Browse Categories</strong> - Use the category dropdown above<br>`;
+                errorMsg += `3. <strong>Contact Keepa Support</strong> - Request search API access<br>`;
+                errorMsg += `4. <strong>Use ASIN Lookup</strong> - Enter specific ASINs directly<br>`;
+                
+                if (data.tokensLeft === 0) {
+                    errorMsg += `<br><strong>⚠️ No tokens available!</strong> Wait for your daily token refill.`;
+                }
+                
+                resultsContainer.innerHTML = `<div class="error-message">${errorMsg}</div>`;
+                return;
+            }
+
+            totalProducts = data.products.length;
+            
+            let html = `<div class="success-message">Found ${totalProducts} products</div>`;
+            html += '<table class="results-table"><thead><tr>';
+            html += '<th>Image</th><th>ASIN</th><th>Title</th><th>Sales Rank</th><th>Price</th><th>Rating</th>';
+            html += '</tr></thead><tbody>';
+
+            data.products.forEach(product => {
+                const asin = product.asin || 'N/A';
+                const title = product.title || 'No title';
+                const salesRank = product.csv && product.csv[3] ? product.csv[3][product.csv[3].length - 1] : 'N/A';
+                const price = product.csv && product.csv[0] ? (product.csv[0][product.csv[0].length - 1] / 100).toFixed(2) : 'N/A';
+                const rating = product.csv && product.csv[16] ? (product.csv[16][product.csv[16].length - 1] / 10).toFixed(1) : 'N/A';
+                const imageUrl = product.imagesCSV ? `https://images-na.ssl-images-amazon.com/images/I/${product.imagesCSV.split(',')[0]}` : '';
+                
+                // Get domain from selector
+                const domainSelect = document.getElementById('domain');
+                const selectedOption = domainSelect.options[domainSelect.selectedIndex];
+                const domainText = selectedOption.text;
+                const amazonDomain = domainText.includes('amazon.in') ? 'amazon.in' : 
+                                   domainText.includes('amazon.co.uk') ? 'amazon.co.uk' : 
+                                   domainText.includes('amazon.de') ? 'amazon.de' : 
+                                   domainText.includes('amazon.fr') ? 'amazon.fr' : 
+                                   domainText.includes('amazon.co.jp') ? 'amazon.co.jp' : 
+                                   domainText.includes('amazon.ca') ? 'amazon.ca' : 
+                                   domainText.includes('amazon.it') ? 'amazon.it' : 
+                                   domainText.includes('amazon.es') ? 'amazon.es' : 
+                                   'amazon.com';
+
+                html += '<tr>';
+                html += `<td>${imageUrl ? `<img src="${imageUrl}" class="product-image" alt="${title}">` : 'No image'}</td>`;
+                html += `<td><a href="https://www.${amazonDomain}/dp/${asin}" target="_blank" class="asin-link">${asin}</a></td>`;
+                html += `<td>${title.substring(0, 80)}${title.length > 80 ? '...' : ''}</td>`;
+                html += `<td>${salesRank !== 'N/A' ? salesRank.toLocaleString() : salesRank}</td>`;
+                html += `<td>${price !== 'N/A' ? price : 'N/A'}</td>`;
+                html += `<td>${rating}</td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            html += '<div class="pagination">';
+            if (currentPage > 0) {
+                html += '<button class="btn btn-secondary" onclick="previousPage()">← Previous</button>';
+            }
+            html += `<span class="page-info">Page ${currentPage + 1}</span>`;
+            html += '<button class="btn btn-secondary" onclick="nextPage()">Next →</button>';
+            html += '</div>';
+
+            resultsContainer.innerHTML = html;
+        }
+
+        function clearFilters() {
+            document.getElementById('domain').value = '10'; // Default to India
+            document.getElementById('category').value = '';
+            document.getElementById('salesRankMin').value = '';
+            document.getElementById('salesRankMax').value = '';
+            document.getElementById('priceMin').value = '';
+            document.getElementById('priceMax').value = '';
+            document.getElementById('perPage').value = '50';
+            currentPage = 0;
+        }
+
+        function nextPage() {
+            currentPage++;
+            searchProducts();
+        }
+
+        function previousPage() {
+            if (currentPage > 0) {
+                currentPage--;
+                searchProducts();
+            }
+        }
+
+        // Check Keepa API health on page load
+        checkKeepaHealth();
+        loadCategories();
+    </script>
+</body>
+</html>

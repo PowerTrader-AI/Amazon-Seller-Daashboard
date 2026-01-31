@@ -1,0 +1,26 @@
+name: weekly-keepa-sourcing
+
+on:
+  schedule:
+    - cron: "0 23 * * 5"  # Friday 23:00 UTC
+  workflow_dispatch:
+
+jobs:
+  run-sourcing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run sourcing job
+        env:
+          KEEPA_API_KEY: ${{ secrets.KEEPA_API_KEY }}
+          PGHOST: ${{ secrets.PGHOST }}
+          PGPORT: ${{ secrets.PGPORT }}
+          PGDATABASE: ${{ secrets.PGDATABASE }}
+          PGUSER: ${{ secrets.PGUSER }}
+          PGPASSWORD: ${{ secrets.PGPASSWORD }}
+        run: python backend/app/jobs/run_sourcing.py
