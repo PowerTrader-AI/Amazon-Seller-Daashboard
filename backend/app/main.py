@@ -8,7 +8,8 @@ import requests
 import os
 import logging
 import json
-
+from pathlib import Path
+from datetime import datetime
 from app import config
 from app.db import (
     get_conn,
@@ -31,6 +32,7 @@ from app.auth import (
     verify_password,
 )
 from app.category_analysis import router as category_router
+from app.product_analysis import ProductAnalyzer, analyze_product
 
 app = FastAPI(title="Amazon Sourcing Engine", version="1.0")
 
@@ -95,7 +97,11 @@ def root():
     }
 
 
-app.mount("/ui", StaticFiles(directory="../frontend", html=True), name="ui")
+BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
+app.mount("/ui", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="ui")
 
 
 @app.get("/keepa/health")
@@ -700,4 +706,194 @@ def batch_analyze_products(request_body: BatchAnalyzeRequest):
         "tokensLeft": tokens_left,
         "analysisTimeMs": int(processing_time)
     }
+
+
+# ============================================================================
+# PHASE 2: ASIN-LEVEL PRODUCT ANALYSIS ENDPOINTS
+# ============================================================================
+
+@app.get("/asin/{asin}/analysis")
+def analyze_single_asin(asin: str):
+    """
+    Analyze a single ASIN across all 7 dimensions.
+    
+    Returns: Profitability, Demand, Stability, Buy Box, OOS Risk, Supply Gap, Non-Seasonal scores
+    """
+    try:
+        client = get_client()
+        
+        # Fetch product data from Keepa
+        result = client.query(asin, 'AMAZON_IN')
+        
+        if not result or asin not in result:
+            raise HTTPException(status_code=404, detail=f"ASIN {asin} not found")
+        
+        product_data = result[asin]
+        
+        # Convert Keepa format to our format
+        product = {
+            'asin': asin,
+            'title': product_data.get('title', 'Unknown'),
+            'price': product_data.get('avgBuyBox', 0) / 100,  # Convert from cents
+            'review_count': product_data.get('avgReviewCount', 0),
+            'seller_count': product_data.get('sellerCount', 1),
+            'sales_rank': product_data.get('highestRank', 999999),
+            'fba_share': product_data.get('isFBAPercent', 0),
+            'fba_available_quantity': product_data.get('fbaAvailable', 0),
+            'product_age_months': 12,  # Would calculate from data
+            'product_age_days': 365
+        }
+        
+        # Perform analysis
+        analyzer = ProductAnalyzer()
+        analysis = analyzer.analyze_asin(product)
+        
+        return {
+            'success': True,
+            'data': analysis,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error analyzing ASIN {asin}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/category/{category_id}/top5")
+def get_top5_products(category_id: str, metric: str = "profitability", limit: int = 5):
+    """
+    Get top 5 products for a category by specific metric.
+    
+    Metrics: profitability, demand, stability, buybox_winability, oos_risk, supply_gap, non_seasonal
+    """
+    try:
+        valid_metrics = ['profitability', 'demand', 'stability', 'buybox_winability', 
+                        'oos_risk', 'supply_gap', 'non_seasonal']
+        
+        if metric not in valid_metrics:
+            raise HTTPException(status_code=400, detail=f"Invalid metric. Must be one of: {valid_metrics}")
+        
+        client = get_client()
+        
+        # Fetch category products
+        category_result = client.query(category_id, 'AMAZON_IN', history='all')
+        
+        if not category_result:
+            raise HTTPException(status_code=404, detail=f"Category {category_id} not found")
+        
+        # Analyze all products
+        analyzer = ProductAnalyzer()
+        analyzed_products = []
+        
+        for asin, data in category_result.items():
+            if asin == 'categories':
+                continue
+            
+            product = {
+                'asin': asin,
+                'title': data.get('title', 'Unknown'),
+                'price': data.get('avgBuyBox', 0) / 100,
+                'review_count': data.get('avgReviewCount', 0),
+                'seller_count': data.get('sellerCount', 1),
+                'sales_rank': data.get('highestRank', 999999),
+                'fba_share': data.get('isFBAPercent', 0),
+                'fba_available_quantity': data.get('fbaAvailable', 0),
+                'product_age_months': 12
+            }
+            
+            analysis = analyzer.analyze_asin(product)
+            analyzed_products.append(analysis)
+        
+        # Sort by selected metric
+        analyzed_products.sort(
+            key=lambda x: x['dimensions'][metric]['score'],
+            reverse=True
+        )
+        
+        return {
+            'success': True,
+            'category_id': category_id,
+            'metric': metric,
+            'top_products': analyzed_products[:limit],
+            'total_products': len(analyzed_products),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error getting top products for category {category_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/category/{category_id}/supply-gaps")
+def get_supply_chain_gaps(category_id: str):
+    """
+    Identify products with supply chain gaps (immediate OOS or future opportunities).
+    
+    Flags products where:
+    - Sellers are decreasing
+    - FBA stock is low
+    - Prices are rising
+    - Demand is accelerating
+    """
+    try:
+        client = get_client()
+        
+        # Fetch category products
+        category_result = client.query(category_id, 'AMAZON_IN')
+        
+        if not category_result:
+            raise HTTPException(status_code=404, detail=f"Category {category_id} not found")
+        
+        # Analyze gaps
+        analyzer = ProductAnalyzer()
+        gap_products = []
+        
+        for asin, data in list(category_result.items())[:50]:  # Limit to top 50
+            if asin == 'categories':
+                continue
+            
+            product = {
+                'asin': asin,
+                'title': data.get('title', 'Unknown'),
+                'price': data.get('avgBuyBox', 0) / 100,
+                'review_count': data.get('avgReviewCount', 0),
+                'seller_count': data.get('sellerCount', 1),
+                'sales_rank': data.get('highestRank', 999999),
+                'fba_share': data.get('isFBAPercent', 0),
+                'fba_available_quantity': data.get('fbaAvailable', 0)
+            }
+            
+            gap_score = analyzer.calculate_oos_risk_score(product)
+            supply_score = analyzer.calculate_supply_gap_score(product)
+            
+            # Only include if gap detected
+            if gap_score['score'] >= 50 or supply_score['score'] >= 50:
+                gap_products.append({
+                    'asin': asin,
+                    'title': product['title'],
+                    'oos_risk': gap_score,
+                    'supply_opportunity': supply_score
+                })
+        
+        # Sort by severity
+        gap_products.sort(
+            key=lambda x: x['oos_risk']['score'] + x['supply_opportunity']['score'],
+            reverse=True
+        )
+        
+        return {
+            'success': True,
+            'category_id': category_id,
+            'gaps_detected': len(gap_products),
+            'products_with_gaps': gap_products[:10],
+            'total_revenue_opportunity': sum([
+                p['oos_risk']['revenue_opportunity'] + p['supply_opportunity']['estimated_revenue_opportunity']
+                for p in gap_products
+            ]),
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error analyzing gaps for category {category_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
