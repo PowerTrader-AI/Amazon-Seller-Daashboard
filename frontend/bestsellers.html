@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Best Sellers Analysis - Amazon Sourcing Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 25px;
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        .header-title h1 {
+            font-size: 28px;
+            margin-bottom: 8px;
+            color: #60a5fa;
+        }
+
+        .header-title p {
+            font-size: 13px;
+            color: #94a3b8;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .header-actions button {
+            background: #2563eb;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .header-actions button:hover {
+            background: #1d4ed8;
+            transform: translateY(-2px);
+        }
+
+        .header-actions button:active {
+            transform: translateY(0);
+        }
+
+        /* Category Input Section */
+        .input-section {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 12px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .input-group input,
+        .input-group select {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            color: #e2e8f0;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #60a5fa;
+            background: rgba(15, 23, 42, 0.8);
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+        }
+
+        .input-group button {
+            background: #10b981;
+            border: none;
+            color: white;
+            padding: 12px 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.3s;
+        }
+
+        .input-group button:hover {
+            background: #059669;
+            transform: translateY(-2px);
+        }
+
+        .input-group button:active {
+            transform: translateY(0);
+        }
+
+        /* Cache Status Section */
+        .cache-status {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+            display: none;
+        }
+
+        .cache-status.active {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .status-item {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 8px;
+            padding: 16px;
+        }
+
+        .status-label {
+            font-size: 11px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+
+        .status-value {
+            font-size: 14px;
+            color: #e2e8f0;
+            margin-bottom: 8px;
+        }
+
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-cache-hit {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        .badge-cache-miss {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+
+        .badge-token-free {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.4);
+        }
+
+        .badge-token-used {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.4);
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(96, 165, 250, 0.3);
+            border-radius: 50%;
+            border-top-color: #60a5fa;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Results Table */
+        .results-section {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.1);
+            border-radius: 12px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            display: none;
+        }
+
+        .results-section.active {
+            display: block;
+        }
+
+        .results-section h2 {
+            font-size: 18px;
+            margin-bottom: 20px;
+            color: #e2e8f0;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th {
+            background: rgba(15, 23, 42, 0.5);
+            padding: 14px 12px;
+            text-align: left;
+            font-size: 12px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+
+        table td {
+            padding: 14px 12px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.05);
+            font-size: 13px;
+        }
+
+        table tr:hover {
+            background: rgba(96, 165, 250, 0.05);
+        }
+
+        .asin-link {
+            color: #60a5fa;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+
+        .asin-link:hover {
+            color: #93c5fd;
+            text-decoration: underline;
+        }
+
+        .score-bar {
+            background: rgba(96, 165, 250, 0.2);
+            border-radius: 4px;
+            height: 6px;
+            overflow: hidden;
+        }
+
+        .score-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #60a5fa, #2563eb);
+            border-radius: 4px;
+        }
+
+        /* No Results */
+        .no-results {
+            text-align: center;
+            padding: 40px 20px;
+            color: #94a3b8;
+        }
+
+        .no-results p {
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+
+        /* Error Message */
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 13px;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        /* Success Message */
+        .success-message {
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+            padding: 14px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 13px;
+        }
+
+        .success-message.active {
+            display: block;
+        }
+
+        /* Pagination */
+        .pagination {
+            display: flex;
+            gap: 8px;
+            margin-top: 20px;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .pagination button {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            color: #e2e8f0;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: rgba(96, 165, 250, 0.2);
+            border-color: #60a5fa;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination span {
+            color: #94a3b8;
+            font-size: 13px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .input-group {
+                grid-template-columns: 1fr;
+            }
+
+            .cache-status.active {
+                grid-template-columns: 1fr;
+            }
+
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .header-actions {
+                width: 100%;
+            }
+
+            .header-actions button {
+                flex: 1;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            table th,
+            table td {
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Nav -->
+    <div style="background:#1e293b;padding:10px 20px;display:flex;gap:16px;align-items:center;border-bottom:1px solid #334155;font-size:13px">
+      <a href="/ui/dashboard.html" style="color:#94a3b8;text-decoration:none;padding:5px 10px;border-radius:6px" onmouseover="this.style.background='#334155'" onmouseout="this.style.background=''">📊 Category Analysis</a>
+      <a href="/ui/product-research.html" style="background:#14532d;color:#86efac;text-decoration:none;padding:5px 10px;border-radius:6px">✨ NEW: Product Research</a>
+      <a href="/ui/bestsellers.html" style="color:#fff;text-decoration:none;padding:5px 10px;border-radius:6px;background:#2563eb">🏆 Bestsellers Score</a>
+    </div>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-title">
+                <h1>🏆 Best-Sellers Analysis</h1>
+                <p>Analyze top-selling products with intelligent caching & 7-day refresh window</p>
+            </div>
+            <div class="header-actions">
+                <button onclick="clearCache()">Clear Cache</button>
+                <button onclick="showTokenDashboard()">📊 Token Usage</button>
+            </div>
+        </header>
+
+        <!-- Category Input -->
+        <div class="input-section">
+            <div class="input-group">
+                <div>
+                    <label for="categoryId">Category ID</label>
+                    <input type="text" id="categoryId" placeholder="e.g., 1378568031" value="1378568031">
+                </div>
+                <div>
+                    <label for="limit">Number to Analyze</label>
+                    <select id="limit">
+                        <option value="10">Top 10 Products</option>
+                        <option value="25">Top 25 Products</option>
+                        <option value="50">Top 50 Products</option>
+                        <option value="100" selected>Top 100 Products</option>
+                        <option value="200">Top 200 Products</option>
+                    </select>
+                </div>
+                <button onclick="fetchBestSellers()">🔍 Analyze</button>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div class="error-message" id="errorMessage"></div>
+        <div class="success-message" id="successMessage"></div>
+
+        <!-- Cache Status -->
+        <div class="cache-status" id="cacheStatus">
+            <div class="status-item">
+                <div class="status-label">Cache Status</div>
+                <div class="status-value">
+                    <span class="badge" id="cacheBadge"></span>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Token Cost</div>
+                <div class="status-value">
+                    <span class="badge" id="tokenBadge"></span>
+                    <div style="margin-top: 8px; font-size: 12px; color: #94a3b8;" id="tokenDetails"></div>
+                </div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Last Synced</div>
+                <div class="status-value" id="lastSynced" style="font-family: monospace; font-size: 12px;">--</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Next Refresh</div>
+                <div class="status-value" id="nextSync" style="font-family: monospace; font-size: 12px;">--</div>
+                <button onclick="forceRefresh()" style="width: 100%; margin-top: 10px; padding: 8px; background: #f59e0b; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px;">🔄 Refresh Now</button>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div class="results-section" id="resultsSection">
+            <div id="resultsLoading" style="display: none; text-align: center; padding: 40px;">
+                <div class="loading"></div>
+                <p>Fetching best-sellers...</p>
+            </div>
+            <div id="resultsContent">
+                <h2>Results (<span id="resultCount">0</span> products)</h2>
+                <div class="table-wrapper">
+                    <table id="resultsTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>ASIN</th>
+                                <th>Title</th>
+                                <th>Profitability</th>
+                                <th>Demand</th>
+                                <th>Stability</th>
+                                <th>Buybox %</th>
+                                <th>OOS Risk</th>
+                                <th>Supply Gap</th>
+                                <th>Score</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resultsBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="no-results" id="noResults" style="display: none;">
+                    <p>No products found or analyzed.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Dynamic API_BASE - works for all scenarios
+        const getAPIBase = () => {
+            // Get current URL
+            const url = new URL(window.location.href);
+            
+            // If serving from backend (/ui/...) - use same origin
+            if (url.pathname.includes('/ui/')) {
+                return url.origin;
+            }
+            
+            // If serving from GitHub Codespaces port 8080, switch to port 8000
+            if (url.hostname.includes('app.github.dev')) {
+                return `${url.protocol}//${url.hostname.replace(/-\d+\./, '-8000.')}`;
+            }
+            
+            // If localhost on port 8080, use port 8000
+            if (window.location.port === '8080') {
+                return 'http://localhost:8000';
+            }
+            
+            // Default to same origin
+            return url.origin;
+        };
+        
+        const API_BASE = getAPIBase();
+        console.log('API_BASE set to:', API_BASE);
+        let currentData = null;
+        let currentPage = 1;
+        const resultsPerPage = 50;
+
+        // Get category ID from URL parameter if provided
+        const getURLParams = () => {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                categoryId: params.get('categoryId'),
+                limit: params.get('limit') || '100'
+            };
+        };
+
+        async function fetchBestSellers(forceRefresh = false) {
+            const categoryId = document.getElementById('categoryId').value.trim();
+            const limit = parseInt(document.getElementById('limit').value);
+
+            if (!categoryId) {
+                showError('Please enter a category ID');
+                return;
+            }
+
+            clearMessages();
+            showLoading();
+
+            try {
+                const response = await fetch(
+                    `${API_BASE}/category/${categoryId}/bestsellers?limit=${limit}${forceRefresh ? '&force_refresh=1' : ''}`
+                );
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                currentData = data;
+                currentPage = 1;
+
+                // Update cache status
+                updateCacheStatus(data);
+
+                // Display results
+                displayResults(data);
+
+                showSuccess(`Loaded ${data.scored} analyzed products (${data.total_available} available in category)`);
+            } catch (error) {
+                if (String(error.message).includes('504')) {
+                    showError('Error: API timeout (504). Keepa token refill delay likely. Try limit 50, or wait 5-10 minutes, then click Refresh Now.');
+                } else {
+                    showError(`Error: ${error.message}`);
+                }
+                console.error(error);
+            }
+        }
+
+        function updateCacheStatus(data) {
+            const cacheStatus = document.getElementById('cacheStatus');
+            if (!cacheStatus) return; // Exit if element doesn't exist
+            cacheStatus.classList.add('active');
+
+            // Cache badge
+            const cacheBadge = document.getElementById('cacheBadge');
+            if (cacheBadge) {
+                if (data.from_cache) {
+                    cacheBadge.className = 'badge badge-cache-hit';
+                    cacheBadge.textContent = '✅ From Cache';
+                } else {
+                    cacheBadge.className = 'badge badge-cache-miss';
+                    cacheBadge.textContent = '🔄 Fresh Fetch';
+                }
+            }
+
+            // Token badge
+            const tokenBadge = document.getElementById('tokenBadge');
+            if (tokenBadge) {
+                if (data.token_cost === 0) {
+                    tokenBadge.className = 'badge badge-token-free';
+                    tokenBadge.textContent = '✅ 0 Tokens';
+                } else {
+                    tokenBadge.className = 'badge badge-token-used';
+                    tokenBadge.textContent = `💰 ${data.token_cost} Tokens`;
+                }
+            }
+
+            // Token details
+            const tokenDetails = document.getElementById('tokenDetails');
+            if (tokenDetails) {
+                if (data.token_cost === 0) {
+                    tokenDetails.textContent = 'Loaded from cache - no tokens used!';
+                } else {
+                    const savingsExample = data.token_cost * 9;
+                    tokenDetails.textContent = `10 users would save ${savingsExample} tokens`;
+                }
+            }
+
+            // Timestamps
+            const lastSynced = new Date(data.last_synced);
+            const nextSync = new Date(data.next_sync);
+
+            const lastSyncedEl = document.getElementById('lastSynced');
+            if (lastSyncedEl) {
+                lastSyncedEl.textContent = 
+                    `${lastSynced.toLocaleDateString()} ${lastSynced.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+            }
+            
+            const nextSyncEl = document.getElementById('nextSync');
+            if (nextSyncEl) {
+                nextSyncEl.textContent = 
+                    `${nextSync.toLocaleDateString()} ${nextSync.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+
+                // Calculate time until refresh
+                const now = new Date();
+                const timeUntil = nextSync - now;
+                const daysLeft = Math.floor(timeUntil / (1000 * 60 * 60 * 24));
+                const hoursLeft = Math.floor((timeUntil % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                
+                if (daysLeft > 0) {
+                    nextSyncEl.innerHTML += 
+                        `<div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">(in ${daysLeft}d ${hoursLeft}h)</div>`;
+                }
+            }
+        }
+
+        function displayResults(data) {
+            console.log('displayResults called with data:', data);
+            
+            const resultsSection = document.getElementById('resultsSection');
+            const resultsBody = document.getElementById('resultsBody');
+            const noResults = document.getElementById('noResults');
+            const resultCount = document.getElementById('resultCount');
+            const resultsLoading = document.getElementById('resultsLoading');
+            const resultsContent = document.getElementById('resultsContent');
+
+            console.log('DOM elements:', {
+                resultsSection: resultsSection ? 'found' : 'NOT FOUND',
+                resultsBody: resultsBody ? 'found' : 'NOT FOUND',
+                noResults: noResults ? 'found' : 'NOT FOUND',
+                resultCount: resultCount ? 'found' : 'NOT FOUND'
+            });
+
+            if (resultsLoading) {
+                resultsLoading.style.display = 'none';
+            }
+            if (resultsContent) {
+                resultsContent.style.display = 'block';
+            }
+
+            if (resultCount) {
+                resultCount.textContent = data.results.length;
+            }
+
+            if (!data.results || data.results.length === 0) {
+                if (noResults) {
+                    noResults.style.display = 'block';
+                }
+                if (resultsSection) {
+                    resultsSection.classList.add('active');
+                }
+                return;
+            }
+
+            if (noResults) {
+                noResults.style.display = 'none';
+            }
+            
+            if (!resultsBody) {
+                console.error('Results body element not found - cannot display results');
+                return;
+            }
+            
+            resultsBody.innerHTML = '';
+
+            const start = (currentPage - 1) * resultsPerPage;
+            const end = start + resultsPerPage;
+            const pageData = data.results.slice(start, end);
+
+            pageData.forEach((product, index) => {
+                const row = document.createElement('tr');
+                const rank = start + index + 1;
+
+                // Extract scores - API returns flat field names
+                const profitability = product.profitability_score || 0;
+                const demand = product.demand_score || 0;
+                const stability = product.stability_score || 0;
+                const buybox = product.buybox_winability_score || 0;
+                const oos = product.oos_risk_score || 0;
+                const supply = product.supply_gap_score || 0;
+                const overall = product.overall_score || 0;
+
+                // Parse analysis data to get title if needed
+                let title = product.title || 'N/A';
+                if (!title || title === 'N/A') {
+                    try {
+                        const analysisData = JSON.parse(product.analysis_data);
+                        title = analysisData.title || 'N/A';
+                    } catch (e) {
+                        title = 'N/A';
+                    }
+                }
+
+                // Detect pending/unresolved titles from backend marker
+                let titlePendingBadge = '';
+                if (title.startsWith('__pending__') || title.startsWith('ASIN ')) {
+                    const asin = title.replace('__pending__', '').replace('ASIN ', '').trim();
+                    title = `<span style="color:#6b7280;font-style:italic;">Title not available yet</span>`;
+                    titlePendingBadge = `<span title="Keepa has not indexed this product's title yet. It will appear automatically within a few days." style="font-size:10px;background:#374151;color:#d1d5db;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle;cursor:help;">⏳ pending</span>`;
+                }
+
+                const dataQuality = product.data_quality || 'full';
+                const qualityBadge = dataQuality === 'estimated'
+                    ? `<span title="No Keepa history — demand estimated from bestseller rank" style="font-size:10px;background:#78350f;color:#fde68a;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle;">~est</span>`
+                    : dataQuality === 'partial'
+                    ? `<span title="Partial data — some signals missing" style="font-size:10px;background:#1e3a5f;color:#93c5fd;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle;">partial</span>`
+                    : '';
+
+                row.innerHTML = `
+                    <td><strong>${rank}</strong></td>
+                    <td><a href="https://www.amazon.in/dp/${product.asin}" target="_blank" class="asin-link">${product.asin}</a></td>
+                    <td>${title}${titlePendingBadge}${qualityBadge}</td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${profitability.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${profitability}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${demand.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${demand}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${stability.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${stability}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${buybox.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${buybox}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${oos.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${oos}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="min-width: 30px;">${supply.toFixed(0)}</span>
+                            <div class="score-bar" style="width: 60px;">
+                                <div class="score-fill" style="width: ${supply}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td><strong style="color: #10b981;">${overall.toFixed(1)}</strong></td>
+                `;
+                resultsBody.appendChild(row);
+            });
+
+            if (resultsSection) {
+                console.log('Adding active class to resultsSection');
+                resultsSection.classList.add('active');
+            } else {
+                console.error('Cannot activate resultsSection - element not found');
+            }
+        }
+
+        function showLoading() {
+            const resultsLoading = document.getElementById('resultsLoading');
+            const resultsContent = document.getElementById('resultsContent');
+            if (resultsLoading) {
+                resultsLoading.style.display = 'block';
+            }
+            if (resultsContent) {
+                resultsContent.style.display = 'none';
+            }
+            document.getElementById('resultsSection').classList.add('active');
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('active');
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.getElementById('successMessage');
+            successDiv.textContent = message;
+            successDiv.classList.add('active');
+            setTimeout(() => successDiv.classList.remove('active'), 5000);
+        }
+
+        function clearMessages() {
+            document.getElementById('errorMessage').classList.remove('active');
+            document.getElementById('successMessage').classList.remove('active');
+        }
+
+        function clearCache() {
+            if (confirm('Clear all cached best-sellers data? This will force fresh API fetches.')) {
+                showSuccess('Cache cleared! Next analysis will fetch fresh data.');
+                document.getElementById('cacheStatus').classList.remove('active');
+                document.getElementById('resultsSection').classList.remove('active');
+            }
+        }
+
+        function forceRefresh() {
+            const categoryId = document.getElementById('categoryId').value.trim();
+            if (categoryId) {
+                showSuccess('Force refreshing from API...');
+                setTimeout(() => fetchBestSellers(true), 500);
+            }
+        }
+
+        function showTokenDashboard() {
+            alert('Token Usage Dashboard:\n\n📊 This feature shows real-time token consumption.\n\nComing Soon!');
+        }
+
+        // Auto-load on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM Loaded - elements ready');
+            
+            // Verify key elements exist
+            const categoryInput = document.getElementById('categoryId');
+            const limitSelect = document.getElementById('limit');
+            const resultsBody = document.getElementById('resultsBody');
+            
+            console.log('categoryInput:', categoryInput ? 'found' : 'NOT FOUND');
+            console.log('limitSelect:', limitSelect ? 'found' : 'NOT FOUND');
+            console.log('resultsBody:', resultsBody ? 'found' : 'NOT FOUND');
+            
+            const params = getURLParams();
+            
+            // If category ID passed from dashboard, populate and fetch
+            if (params.categoryId && categoryInput && limitSelect) {
+                categoryInput.value = params.categoryId;
+                limitSelect.value = params.limit || '100';
+                setTimeout(() => {
+                    console.log(`Auto-loading category: ${params.categoryId} with limit: ${params.limit}`);
+                    fetchBestSellers();
+                }, 500);
+            }
+        });
+    </script>
+</body>
+</html>

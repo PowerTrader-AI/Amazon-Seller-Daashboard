@@ -580,6 +580,12 @@
     </style>
 </head>
 <body>
+    <!-- Nav -->
+    <div style="background:#1e293b;padding:10px 20px;display:flex;gap:16px;align-items:center;border-bottom:1px solid #334155;font-size:13px">
+      <a href="/ui/dashboard.html" style="color:#fff;text-decoration:none;padding:5px 10px;border-radius:6px;background:#2563eb">📊 Category Analysis</a>
+      <a href="/ui/product-research.html" style="background:#14532d;color:#86efac;text-decoration:none;padding:5px 10px;border-radius:6px">✨ NEW: Product Research</a>
+      <a href="/ui/bestsellers.html" style="color:#94a3b8;text-decoration:none;padding:5px 10px;border-radius:6px" onmouseover="this.style.background='#334155'" onmouseout="this.style.background=''">🏆 Bestsellers Score</a>
+    </div>
     <div class="container">
         <div class="header">
             <h1>🎯 Amazon Sourcing Dashboard</h1>
@@ -680,6 +686,34 @@
     </div>
 
     <script>
+        // Dynamic API_BASE - works for all scenarios
+        const getAPIBase = () => {
+            // Get current URL
+            const url = new URL(window.location.href);
+            
+            // If serving from backend (/ui/...) - use same origin
+            if (url.pathname.includes('/ui/')) {
+                return url.origin;
+            }
+            
+            // If serving from GitHub Codespaces port 8080, switch to port 8000
+            if (url.hostname.includes('app.github.dev')) {
+                return `${url.protocol}//${url.hostname.replace(/-\d+\./, '-8000.')}`;
+            }
+            
+            // If localhost on port 8080, use port 8000
+            if (window.location.port === '8080') {
+                return 'http://localhost:8000';
+            }
+            
+            // Default to same origin
+            return url.origin;
+        };
+        
+        const API_BASE = getAPIBase();
+        console.log('API_BASE set to:', API_BASE);
+        console.log('Current URL:', window.location.href);
+        
         // Tab switching
         function switchTab(tabName) {
             // Update tab buttons
@@ -707,8 +741,15 @@
         // Load category analysis data
         async function loadCategoryData() {
             try {
-                const response = await fetch('/category/analysis');
+                console.log('Loading category data from:', `${API_BASE}/category/analysis`);
+                const response = await fetch(`${API_BASE}/category/analysis`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
+                console.log('Category data loaded:', data);
 
                 if (data.success) {
                     renderCategoryStats(data);
@@ -875,7 +916,7 @@
         // Load and render recommendations
         async function loadRecommendations() {
             try {
-                const response = await fetch('/category/analysis');
+                const response = await fetch(`${API_BASE}/category/analysis`);
                 const data = await response.json();
 
                 if (data.success) {
@@ -1032,13 +1073,13 @@
 
         // Select category and switch to product analyzer
         async function selectCategoryAndAnalyze(categoryId, categoryName) {
-            console.log('Analyzing category:', categoryId, categoryName);
+            console.log('Navigating to Best-Sellers Analysis for:', categoryId, categoryName);
             
-            // Switch to product tab
-            switchTab('product');
+            // Navigate to bestsellers page with category ID and name in URL
+            const limit = 100; // Default to top 100 products
+            const bestsellersURL = `bestsellers.html?categoryId=${categoryId}&limit=${limit}`;
             
-            // Fetch and display products
-            loadCategoryProducts(categoryId, categoryName);
+            window.location.href = bestsellersURL;
         }
 
         // Load products for a specific category

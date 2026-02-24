@@ -76,8 +76,9 @@
         if (!origin || origin === "null") {
           return `${protocol}//${hostname}:8000`;
         }
-        if (hostname.includes("-3000.") && hostname.endsWith(".app.github.dev")) {
-          return `${protocol}//${hostname.replace("-3000.", "-8000.")}`;
+        if (hostname.endsWith(".app.github.dev")) {
+          const apiHostname = hostname.replace(/-\d+\./, "-8000.");
+          return `${protocol}//${apiHostname}`;
         }
         if (port && port !== "8000") {
           return `${protocol}//${hostname}:8000`;

@@ -10,6 +10,8 @@ import logging
 import json
 from pathlib import Path
 from datetime import datetime
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from app import config
 from app.db import (
     get_conn,
@@ -36,16 +38,38 @@ from app.product_analysis import ProductAnalyzer, analyze_product
 
 app = FastAPI(title="Amazon Sourcing Engine", version="1.0")
 
-# Register category analysis router
-app.include_router(category_router)
+# Custom CORS middleware  
+class CORSMiddlewareCustom(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method == "OPTIONS":
+            return Response(
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                }
+            )
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
 
+app.add_middleware(CORSMiddlewareCustom)
+
+# Add CORS middleware (keep original too for redundancy)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600
 )
+
+# Register category analysis router
+app.include_router(category_router)
 
 auth_scheme = HTTPBearer()
 
@@ -93,7 +117,7 @@ def root():
         "message": "API is running",
         "docs": "/docs",
         "health": "/health",
-        "ui": "/ui/index.html"
+        "ui": "/ui/dashboard.html"
     }
 
 
@@ -757,6 +781,296 @@ def analyze_single_asin(asin: str):
     except Exception as e:
         logger.error(f"Error analyzing ASIN {asin}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/category/{category_id}/bestsellers")
+def get_bestsellers_analysis(
+    category_id: str,
+    limit: int = Query(100, ge=1, le=1000),
+    force_refresh: bool = Query(False)
+):
+    """
+    Get best-selling products from a category with 7-dimension scoring.
+    Uses 7-day caching to avoid redundant API calls.
+    
+    Args:
+        category_id: Category ID (root or subcategory)
+        limit: Max products to analyze (1-1000, default 100)
+    
+    Returns:
+        {
+            "category_id": "1378568031",
+            "total_available": 23332,
+            "fetched": 100,
+            "scored": 95,
+            "from_cache": false,  # true if loaded from DB cache
+            "last_synced": "2026-01-25T10:30:00Z",  # When was it last fetched
+            "next_sync": "2026-02-01T10:30:00Z",    # When will it auto-refresh
+            "token_cost": 2,  # 0 if from cache
+            "results": [...]
+        }
+    """
+    import time
+    from app.db import (
+        get_conn, get_category_sync_status, get_category_products_from_cache,
+        set_category_syncing, save_category_sync, save_category_products,
+        save_product_analysis_scores, get_product_analysis_scores, log_token_usage
+    )
+    
+    start_time = time.time()
+    
+    try:
+        # Get database connection
+        db = get_conn()
+        
+        # STEP 1: Check if category cache is still fresh
+        sync_status = get_category_sync_status(db, category_id, domain='IN')
+        cache_is_fresh = False
+        if sync_status and sync_status['status'] == 'completed' and sync_status['next_sync_at']:
+            try:
+                cache_is_fresh = datetime.fromisoformat(str(sync_status['next_sync_at'])) > datetime.now()
+            except ValueError:
+                cache_is_fresh = False
+        
+        if sync_status and cache_is_fresh and not force_refresh:
+            # CACHE HIT! Load from database
+            logger.info(f"✅ Cache hit for category {category_id}")
+            
+            cached_asins = get_category_products_from_cache(db, category_id, limit)
+            asins_to_fetch = cached_asins
+            from_cache = True
+            token_cost = 0
+            total_available = sync_status['total_products']
+            last_synced = sync_status['last_synced_at']
+            next_sync = sync_status['next_sync_at']
+            
+            # Log cache hit
+            log_token_usage(
+                db, 'category_fetch', category_id, len(asins_to_fetch), 
+                0, int((time.time() - start_time) * 1000), cache_hit=True
+            )
+            
+        else:
+            # CACHE MISS! Need to fetch from API
+            reason = "force refresh requested" if force_refresh else "cache expired/missing"
+            logger.info(f"🔄 Cache miss for category {category_id} ({reason}) - fetching from Keepa API")
+            
+            set_category_syncing(db, category_id)
+            client = get_client()
+            initial_tokens = getattr(client, 'tokens_left', None)
+            
+            # Fetch best-sellers list (1 token)
+            all_asins = client.best_sellers_query(
+                category=category_id,
+                domain="IN",
+                wait=True
+            )
+            
+            if not all_asins:
+                raise HTTPException(status_code=404, detail=f"No products found in category {category_id}")
+            
+            # Save ASIN list to database
+            save_category_products(db, category_id, all_asins)
+            
+            asins_to_fetch = all_asins[:limit]
+            from_cache = False
+            total_available = len(all_asins)
+            last_synced = datetime.now().isoformat()
+            
+            # Query products (ceil(len/100) tokens)
+            products = client.query(asins_to_fetch, stats=180, rating=1, wait=True)
+            
+            final_tokens = getattr(client, 'tokens_left', None)
+            tokens_used = (initial_tokens - final_tokens) if (initial_tokens and final_tokens) else 1
+            token_cost = tokens_used
+            
+            # Save sync status to database
+            from datetime import datetime, timedelta
+            save_category_sync(
+                db, category_id, total_available, len([p for p in products if p]),
+                tokens_used, int((time.time() - start_time)),
+                domain='IN'
+            )
+            next_sync = (datetime.now() + timedelta(days=7)).isoformat()
+            
+            # Log token usage
+            log_token_usage(
+                db, 'category_fetch', category_id, len(asins_to_fetch), 
+                tokens_used, int((time.time() - start_time) * 1000), cache_hit=False
+            )
+        
+        # STEP 2: Score each product (fetch if not from cache)
+        analyzer = ProductAnalyzer()
+        scored_results = []
+
+        def extract_current_price(product_payload: Dict[str, Any]) -> float:
+            stats_parsed = product_payload.get('stats_parsed') or {}
+            current_parsed = stats_parsed.get('current') or {}
+            if isinstance(current_parsed, dict):
+                parsed_price = (
+                    current_parsed.get('buyBoxPrice')
+                    or current_parsed.get('amazon')
+                    or current_parsed.get('new')
+                    or current_parsed.get('current')
+                )
+                if parsed_price:
+                    return float(parsed_price)
+
+            stats = product_payload.get('stats') or {}
+            current = stats.get('current', [])
+            if isinstance(current, dict):
+                raw_price = (
+                    current.get('buyBoxPrice')
+                    or current.get('amazon')
+                    or current.get('new')
+                    or 0
+                )
+                return float(raw_price) / 100 if raw_price else 0
+            if isinstance(current, list) and current:
+                raw_price = current[0]
+                return float(raw_price) / 100 if raw_price and raw_price > 0 else 0
+
+            return 0
+
+        def format_scored_result(analysis_payload: Dict[str, Any], rank: int, from_score_cache: bool) -> Dict[str, Any]:
+            dimensions = analysis_payload.get('dimensions', {})
+            return {
+                'rank': rank,
+                'asin': analysis_payload.get('asin'),
+                'title': analysis_payload.get('title') or 'N/A',
+                'profitability_score': dimensions.get('profitability', {}).get('score', 0),
+                'demand_score': dimensions.get('demand', {}).get('score', 0),
+                'stability_score': dimensions.get('stability', {}).get('score', 0),
+                'buybox_winability_score': dimensions.get('buybox_winability', {}).get('score', 0),
+                'oos_risk_score': dimensions.get('oos_risk', {}).get('score', 0),
+                'supply_gap_score': dimensions.get('supply_gap', {}).get('score', 0),
+                'non_seasonal_score': dimensions.get('non_seasonal', {}).get('score', 0),
+                'overall_score': analysis_payload.get('overall_score', 0),
+                'analysis_data': json.dumps(analysis_payload),
+                'from_score_cache': from_score_cache
+            }
+        
+        if not from_cache:
+            # Fetch all products from API
+            products = client.query(asins_to_fetch, stats=180, rating=1, wait=True)
+        else:
+            # Fetch from keepa_products_cache table
+            db_cursor = db.cursor()
+            asins_str = ','.join([f'"{a}"' for a in asins_to_fetch])
+            db_cursor.execute(f"""
+                SELECT asin, title, current_price_cents, current_sales_rank,
+                       current_rating, current_review_count
+                FROM keepa_products_cache
+                WHERE asin IN ({asins_str})
+            """)
+            cache_products = db_cursor.fetchall()
+        
+        # Score products
+        for idx, product in enumerate((products if not from_cache else cache_products), 1):
+            if product:
+                asin = product.get('asin') if not from_cache else product['asin']
+                
+                # Check if scores are cached
+                cached_scores = get_product_analysis_scores(db, asin)
+                
+                if cached_scores:
+                    # Use cached scores
+                    analysis_payload = {}
+                    raw_analysis = cached_scores['analysis_data'] if 'analysis_data' in cached_scores.keys() else None
+                    if raw_analysis:
+                        try:
+                            analysis_payload = json.loads(raw_analysis)
+                        except Exception:
+                            analysis_payload = {}
+
+                    dimensions = analysis_payload.get('dimensions', {}) if isinstance(analysis_payload, dict) else {}
+
+                    def pick_score(column_value, dim_key):
+                        if column_value and column_value != 0:
+                            return float(column_value)
+                        return float(dimensions.get(dim_key, {}).get('score', 0))
+
+                    overall_score = cached_scores.get('overall_score')
+                    if not overall_score and isinstance(analysis_payload, dict):
+                        overall_score = analysis_payload.get('overall_score', 0)
+
+                    scored_results.append({
+                        'rank': idx,
+                        'asin': asin,
+                        'title': (analysis_payload.get('title') or 'N/A')[:60],
+                        'profitability_score': pick_score(cached_scores.get('profitability_score', 0), 'profitability'),
+                        'demand_score': pick_score(cached_scores.get('demand_score', 0), 'demand'),
+                        'stability_score': pick_score(cached_scores.get('stability_score', 0), 'stability'),
+                        'buybox_winability_score': pick_score(cached_scores.get('buybox_winability_score', 0), 'buybox_winability'),
+                        'oos_risk_score': pick_score(cached_scores.get('oos_risk_score', 0), 'oos_risk'),
+                        'supply_gap_score': pick_score(cached_scores.get('supply_gap_score', 0), 'supply_gap'),
+                        'non_seasonal_score': pick_score(cached_scores.get('non_seasonal_score', 0), 'non_seasonal'),
+                        'overall_score': float(overall_score or 0),
+                        'analysis_data': json.dumps(analysis_payload) if isinstance(analysis_payload, dict) else raw_analysis,
+                        'from_score_cache': True
+                    })
+                else:
+                    # Calculate new scores
+                    try:
+                        if not from_cache:
+                            # Convert Keepa format
+                            stats = product.get('stats_parsed', {}) or product.get('stats', {})
+                            converted_product = {
+                                'asin': product.get('asin'),
+                                'title': product.get('title') or f'Product {asin}',
+                                'price': extract_current_price(product),
+                                'review_count': product.get('reviewCount', 0) or 0,
+                                'seller_count': product.get('sellerCount', 1) or 1,
+                                'sales_rank': product.get('salesRank', 999999) or 999999,
+                                'fba_share': product.get('isFBAPercent', 0) or 0,
+                                'brand': product.get('brand') or 'Unknown',
+                                'csv': product.get('csv'),
+                            }
+                        else:
+                            # Already in simple format
+                            converted_product = {
+                                'asin': product['asin'],
+                                'title': product['title'] or f'Product {product["asin"]}',
+                                'price': product['current_price_cents'] / 100 if product['current_price_cents'] else 0,
+                                'review_count': product['current_review_count'] or 0,
+                                'seller_count': 1,  # Not available in cache table
+                                'sales_rank': product['current_sales_rank'] or 999999,
+                                'fba_share': 0,  # Not available in cache
+                                'brand': 'Unknown',
+                                'csv': None,
+                            }
+                        
+                        # Analyze
+                        analysis = analyzer.analyze_asin(converted_product)
+                        analysis['rank'] = idx
+                        analysis['from_score_cache'] = False
+                        
+                        # Cache the scores
+                        save_product_analysis_scores(db, asin, analysis)
+                        
+                        scored_results.append(format_scored_result(analysis, idx, False))
+                    except Exception as e:
+                        logger.warning(f"Could not analyze ASIN {asin}: {str(e)}")
+        
+        # STEP 3: Return results
+        return {
+            'success': True,
+            'category_id': category_id,
+            'total_available': total_available,
+            'fetched': len(asins_to_fetch),
+            'scored': len(scored_results),
+            'from_cache': from_cache,
+            'last_synced': last_synced,
+            'next_sync': next_sync,
+            'token_cost': token_cost if not from_cache else 0,
+            'results': scored_results,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    except Exception as e:
+        logger.error(f"Error analyzing bestsellers for category {category_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get("/category/{category_id}/top5")

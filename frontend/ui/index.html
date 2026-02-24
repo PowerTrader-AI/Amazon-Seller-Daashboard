@@ -359,11 +359,9 @@
     <script>
         const API_BASE = (() => {
             const { protocol, hostname } = window.location;
-            if (hostname.includes('-8000.') && hostname.endsWith('.app.github.dev')) {
-                return `${protocol}//${hostname}`;
-            }
-            if (hostname.includes('-3000.') && hostname.endsWith('.app.github.dev')) {
-                return `${protocol}//${hostname.replace('-3000.', '-8000.')}`;
+            if (hostname.endsWith('.app.github.dev')) {
+                const apiHostname = hostname.replace(/-\d+\./, '-8000.');
+                return `${protocol}//${apiHostname}`;
             }
             return `${protocol}//${hostname}:8000`;
         })();

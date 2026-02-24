@@ -3,38 +3,101 @@ Category analysis endpoints for Amazon Toys category.
 """
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 import logging
+import json
+import re
+from html import unescape
+import requests
 from app.keepa_client import fetch_category_tree
 import time
+import sqlite3
+import os
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/category", tags=["category"])
 
-# Cache for category data (24 hour expiration)
+# In-memory cache (fast path)
 _category_cache = {}
 _cache_expiry = {}
 CACHE_DURATION = 86400  # 24 hours
 
+# SQLite DB path (same as main app)
+_DB_PATH = os.environ.get("DB_PATH", os.path.join(os.path.dirname(__file__), "..", "..", "amazon_sourcing.db"))
+
+
+def _ensure_category_cache_table():
+    """Create the keepa_category_cache table if it does not exist."""
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS keepa_category_cache (
+                cache_key   TEXT PRIMARY KEY,
+                payload     TEXT NOT NULL,
+                expires_at  REAL NOT NULL
+            )
+        """)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Could not ensure keepa_category_cache table: {e}")
+
+_ensure_category_cache_table()
+
+
 def get_cached_categories(category_id: int, domain: str = 'IN'):
     """
     Fetch categories from Keepa API with 24-hour caching.
+    Uses in-memory dict first, then SQLite, then live Keepa call.
     """
     cache_key = f"{category_id}_{domain}"
     current_time = time.time()
-    
-    # Check cache
+
+    # 1. In-memory fast path
     if cache_key in _category_cache and current_time < _cache_expiry.get(cache_key, 0):
         return _category_cache[cache_key]
-    
-    # Fetch from Keepa
+
+    # 2. SQLite persistent cache
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        row = conn.execute(
+            "SELECT payload, expires_at FROM keepa_category_cache WHERE cache_key = ?",
+            (cache_key,)
+        ).fetchone()
+        conn.close()
+        if row and current_time < row[1]:
+            categories = json.loads(row[0])
+            # Warm in-memory cache
+            _category_cache[cache_key] = categories
+            _cache_expiry[cache_key] = row[1]
+            logger.debug(f"Category {cache_key} loaded from SQLite cache")
+            return categories
+    except Exception as e:
+        logger.warning(f"SQLite category cache read failed: {e}")
+
+    # 3. Live Keepa call
     categories = fetch_category_tree(category_id, domain=domain, include_parents=False)
-    
-    # Cache it
+
+    expires_at = current_time + CACHE_DURATION
+
+    # Populate in-memory cache
     _category_cache[cache_key] = categories
-    _cache_expiry[cache_key] = current_time + CACHE_DURATION
-    
+    _cache_expiry[cache_key] = expires_at
+
+    # Persist to SQLite
+    try:
+        conn = sqlite3.connect(_DB_PATH)
+        conn.execute(
+            "INSERT OR REPLACE INTO keepa_category_cache (cache_key, payload, expires_at) VALUES (?, ?, ?)",
+            (cache_key, json.dumps(categories), expires_at)
+        )
+        conn.commit()
+        conn.close()
+        logger.info(f"Category {cache_key} saved to SQLite cache (expires in 24h)")
+    except Exception as e:
+        logger.warning(f"SQLite category cache write failed: {e}")
+
     return categories
 
 # Fallback: Toys category data from Keepa (if API fails)
@@ -734,6 +797,757 @@ def is_branded_product(title):
     return len(uncommon_words) < 2
 
 
+@router.get("/{category_id}/bestsellers")
+async def get_bestsellers_analysis(
+    category_id: str,
+    limit: int = 100,
+    force_refresh: bool = False
+):
+    """
+    Get best-selling products from a category with 7-dimension scoring.
+    Uses 7-day caching to avoid redundant API calls.
+    
+    Args:
+        category_id: Category ID (root or subcategory)
+        limit: Max products to analyze (default 100)
+    
+    Returns:
+        {
+            "category_id": "1378568031",
+            "total_available": 23332,
+            "fetched": 100,
+            "scored": 95,
+            "from_cache": false,
+            "last_synced": "2026-01-25T10:30:00Z",
+            "next_sync": "2026-02-01T10:30:00Z",
+            "token_cost": 235,
+            "results": [...]
+        }
+    """
+    import time
+    from datetime import datetime, timedelta
+    from app.db import (
+        get_conn, get_category_sync_status, get_category_products_from_cache,
+        set_category_syncing, save_category_sync, save_category_products,
+        save_product_analysis_scores, get_product_analysis_scores, log_token_usage,
+        get_asin_title, save_asin_title
+    )
+    from app.keepa_client import get_client
+    from app.product_analysis import ProductAnalyzer
+    
+    start_time = time.time()
+    
+    try:
+        # Get database connection
+        db = get_conn()
+        analysis_pool_limit = min(max(limit * 2, limit), 100)
+        
+        # STEP 1: Check if category cache is still fresh
+        sync_status = get_category_sync_status(db, category_id, domain='IN')
+        cache_is_fresh = False
+        if sync_status and sync_status['status'] == 'completed' and sync_status['next_sync_at']:
+            try:
+                cache_is_fresh = datetime.fromisoformat(str(sync_status['next_sync_at'])) > datetime.now()
+            except ValueError:
+                cache_is_fresh = False
+        
+        if sync_status and cache_is_fresh and not force_refresh:
+            # CACHE HIT! Load from database
+            logger.info(f"✅ Cache hit for category {category_id}")
+            
+            cached_asins = get_category_products_from_cache(db, category_id, analysis_pool_limit)
+            asins_to_fetch = cached_asins
+            from_cache = True
+            token_cost = 0
+            total_available = sync_status['total_products']
+            last_synced = sync_status['last_synced_at']
+            next_sync = sync_status['next_sync_at']
+            
+            # Log cache hit
+            log_token_usage(
+                db, 'category_fetch', category_id, len(asins_to_fetch), 
+                0, int((time.time() - start_time) * 1000), cache_hit=True
+            )
+            
+        else:
+            # CACHE MISS! Need to fetch from API
+            reason = "force refresh requested" if force_refresh else "cache expired/missing"
+            logger.info(f"🔄 Cache miss for category {category_id} ({reason}) - fetching from Keepa API")
+            
+            set_category_syncing(db, category_id)
+            client = get_client()
+            initial_tokens = getattr(client, 'tokens_left', None)
+            
+            # Fetch best-sellers list (1 token)
+            all_asins = client.best_sellers_query(
+                category=category_id,
+                domain="IN",
+                wait=False
+            )
+            
+            if not all_asins:
+                raise HTTPException(status_code=404, detail=f"No products found in category {category_id}")
+            
+            # Save ASIN list to database
+            save_category_products(db, category_id, all_asins)
+            
+            asins_to_fetch = all_asins[:analysis_pool_limit]
+            from_cache = False
+            total_available = len(all_asins)
+            last_synced = datetime.now().isoformat()
+            
+            # Query products (non-blocking; may partially fail if tokens are low)
+            try:
+                raw_products = client.query(asins_to_fetch, stats=180, rating=1, wait=False, domain='IN')
+                # Keepa may omit ASINs it has no data for; fill gaps with stubs so
+                # every ASIN still gets scored using its bestseller-rank position.
+                asin_to_keepa = {p.get("asin"): p for p in raw_products if p and p.get("asin")}
+                products = [asin_to_keepa.get(asin, {"asin": asin}) for asin in asins_to_fetch]
+
+                final_tokens = getattr(client, 'tokens_left', None)
+                tokens_used = (initial_tokens - final_tokens) if (initial_tokens and final_tokens) else 235
+                token_cost = tokens_used
+
+                # Save sync status to database
+                save_category_sync(
+                    db, category_id, total_available, len(raw_products),
+                    tokens_used, int((time.time() - start_time)),
+                    domain='IN'
+                )
+                next_sync = (datetime.now() + timedelta(days=7)).isoformat()
+
+                # Log token usage
+                log_token_usage(
+                    db, 'category_fetch', category_id, len(asins_to_fetch),
+                    tokens_used, int((time.time() - start_time) * 1000), cache_hit=False
+                )
+            except Exception as e:
+                if 'NOT_ENOUGH_TOKEN' in str(e):
+                    logger.warning(f"Token limit reached for category {category_id}. Falling back to cached results.")
+                    cached_asins = get_category_products_from_cache(db, category_id, analysis_pool_limit)
+                    asins_to_fetch = cached_asins
+                    from_cache = True
+                    token_cost = 0
+                    next_sync = sync_status['next_sync_at'] if sync_status else (datetime.now() + timedelta(days=1)).isoformat()
+                    if sync_status and sync_status['last_synced_at']:
+                        last_synced = sync_status['last_synced_at']
+                else:
+                    raise
+        
+        # STEP 2: Score each product
+        analyzer = ProductAnalyzer()
+        scored_results = []
+
+        # If from cache, only query Keepa for ASINs that don't have valid score cache
+        if from_cache:
+            asins_needing_keepa = []
+            for asin in asins_to_fetch:
+                score_row = get_product_analysis_scores(db, asin)
+                if not score_row:
+                    asins_needing_keepa.append(asin)
+
+            if asins_needing_keepa:
+                logger.info(f"Cache hit: {len(asins_needing_keepa)}/{len(asins_to_fetch)} ASINs need fresh Keepa data")
+                client = get_client()
+                try:
+                    fresh_products = client.query(asins_needing_keepa, stats=180, rating=1, wait=False, domain='IN')
+                    asin_to_product = {p.get("asin"): p for p in fresh_products if p and p.get("asin")}
+                except Exception as e:
+                    logger.warning(f"Failed to load fresh products from Keepa: {e}")
+                    asin_to_product = {}
+            else:
+                logger.info(f"Cache hit: all {len(asins_to_fetch)} ASINs have score cache — skipping Keepa call")
+                asin_to_product = {}
+
+            # Build product list: use fresh Keepa data where available, else stub for DB score lookup
+            products = [asin_to_product.get(asin, {"asin": asin}) for asin in asins_to_fetch]
+        
+        def extract_latest_csv_value(series: Any, divisor: float = 1.0) -> Optional[float]:
+            if not isinstance(series, list) or not series:
+                return None
+
+            # Format: [[ts, value], ...]
+            if isinstance(series[-1], list):
+                for entry in reversed(series):
+                    if isinstance(entry, list) and len(entry) >= 2:
+                        value = entry[1]
+                        if isinstance(value, (int, float)) and value != -1:
+                            return float(value) / divisor
+                return None
+
+            # Format: [ts1, value1, ts2, value2, ...] (Keepa flattened)
+            for idx in range(len(series) - 1, -1, -1):
+                if idx % 2 == 1:
+                    value = series[idx]
+                    if isinstance(value, (int, float)) and value != -1:
+                        return float(value) / divisor
+
+            for value in reversed(series):
+                if isinstance(value, (int, float)) and value != -1:
+                    return float(value) / divisor
+
+            return None
+
+        def extract_stats_fallback(product_payload: Dict[str, Any], field_index: int, divisor: float = 1.0) -> Optional[float]:
+            stats = product_payload.get('stats') or {}
+            for key in ('current', 'avg30', 'avg90', 'avg180', 'avg365', 'avg'):
+                values = stats.get(key)
+                if isinstance(values, list) and len(values) > field_index:
+                    value = values[field_index]
+                    if isinstance(value, (int, float)) and value > 0:
+                        return float(value) / divisor
+            return None
+
+        def convert_keepa_product(product_payload: Dict[str, Any], rank_position: int = None) -> Dict[str, Any]:
+            csv_array = product_payload.get('csv') if isinstance(product_payload.get('csv'), list) else []
+
+            price = None
+            sales_rank = None
+            rating = None
+            review_count = None
+
+            if len(csv_array) > 0:
+                price = extract_latest_csv_value(csv_array[0], divisor=100.0)
+            if len(csv_array) > 3:
+                sales_rank = extract_latest_csv_value(csv_array[3], divisor=1.0)
+            if len(csv_array) > 16:
+                rating = extract_latest_csv_value(csv_array[16], divisor=10.0)
+            if len(csv_array) > 17:
+                review_count = extract_latest_csv_value(csv_array[17], divisor=1.0)
+
+            if not price:
+                price = extract_stats_fallback(product_payload, field_index=0, divisor=100.0)
+            if not sales_rank:
+                sales_rank = extract_stats_fallback(product_payload, field_index=3, divisor=1.0)
+
+            asin = product_payload.get('asin', '')
+            title = (product_payload.get('title') or '').strip() or f'ASIN {asin}'
+            seller_count = int(product_payload.get('sellerCount') or 10)
+            fba_share = float(product_payload.get('isFBAPercent') or 0)
+
+            has_real_data = bool(
+                (price and price > 0) or
+                (sales_rank and sales_rank > 0 and sales_rank < 999999) or
+                (review_count and review_count > 0) or
+                (rating and rating > 0)
+            )
+
+            # If Keepa has no history but this ASIN appears in the bestseller list,
+            # use its list position as a demand proxy so it still gets scored.
+            data_quality = 'full'
+            if not has_real_data and rank_position:
+                # Map bestseller position → estimated sales rank
+                # Position 1 → ~1 000, Position 100 → ~100 000
+                sales_rank = rank_position * 1000
+                data_quality = 'estimated'
+            elif has_real_data and not (price and price > 0):
+                data_quality = 'partial'
+
+            has_minimum_data = has_real_data or bool(rank_position)
+
+            return {
+                'asin': asin,
+                'title': title,
+                'price': float(price or 0),
+                'review_count': int(review_count or 0),
+                'seller_count': max(1, seller_count),
+                'sales_rank': int(sales_rank or 999999),
+                'fba_share': fba_share,
+                'fba_available_quantity': 500,
+                'product_age_months': 12,
+                'product_age_days': 365,
+                '_has_minimum_data': has_minimum_data,
+                '_data_quality': data_quality,
+            }
+
+        def is_weak_cached_score(row: Dict[str, Any]) -> bool:
+            title = (row.get('title') or '').strip().upper()
+            profitability = float(row.get('profitability_score') or 0)
+            stability = float(row.get('stability_score') or 0)
+            demand = float(row.get('demand_score') or 0)
+            overall = float(row.get('overall_score') or 0)
+            return (title in ('', 'N/A')) or (profitability == 0 and stability == 0 and demand <= 30 and overall <= 30)
+
+        # In-memory title cache (avoids duplicate lookups within one request)
+        _title_mem_cache: Dict[str, str] = {}
+        _fresh_scrape_count = [0]  # mutable counter; only fresh HTTP fetches increment this
+        _fresh_scrape_max = 20     # max new Amazon scrapes per request; DB cache hits are free
+
+        def resolve_title(asin: str, title: Optional[str]) -> str:
+            """Return best available title: Keepa > in-memory > DB cache > Amazon scrape > fallback."""
+            clean_title = (title or '').strip()
+            if clean_title and clean_title.upper() != 'N/A' and not clean_title.upper().startswith('ASIN '):
+                resolved = clean_title[:120]
+                _title_mem_cache[asin] = resolved
+                return resolved
+
+            # Check in-memory cache first (free)
+            if asin in _title_mem_cache:
+                return _title_mem_cache[asin]
+
+            # Check persistent SQLite title cache (DB hit = free, no HTTP call)
+            # Note: failed scrape attempts are also stored (as 'ASIN XXXXX') to prevent re-scraping
+            cached_db_title = get_asin_title(db, asin)
+            if cached_db_title is not None:
+                title_res = cached_db_title if not cached_db_title.startswith('__pending__') and not cached_db_title.upper().startswith('ASIN ') else f'__pending__{asin}'
+                _title_mem_cache[asin] = title_res
+                return title_res
+
+            # Scrape Amazon page — limited to _fresh_scrape_max NEW scrapes per request
+            if _fresh_scrape_count[0] < _fresh_scrape_max:
+                _fresh_scrape_count[0] += 1
+                try:
+                    response = requests.get(
+                        f"https://www.amazon.in/dp/{asin}",
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                            "Accept-Language": "en-IN,en;q=0.9",
+                        },
+                        timeout=3,
+                    )
+                    if response.status_code == 200 and len(response.text) > 10000:
+                        # Ignore short responses (< 10KB = CAPTCHA/robot-check page ~5KB)
+                        match = re.search(r"<title>(.*?)</title>", response.text, flags=re.IGNORECASE | re.DOTALL)
+                        if match:
+                            scraped = unescape(match.group(1)).strip()
+                            scraped = re.sub(r"\s*-\s*Amazon\.?in\s*$", "", scraped, flags=re.IGNORECASE).strip()
+                            # Skip CAPTCHA titles ("Amazon.in", "Amazon") and empty titles
+                            if scraped and scraped.lower() not in ('amazon.in', 'amazon') and not scraped.upper().startswith('ASIN '):
+                                save_asin_title(db, asin, scraped, source='amazon')
+                                _title_mem_cache[asin] = scraped[:120]
+                                return scraped[:120]
+                except Exception:
+                    pass
+                # Cache the failure with 24h TTL — prevents re-scraping this request cycle
+                # and for the next 24h (transient CAPTCHAs may clear after that)
+                save_asin_title(db, asin, f'__pending__{asin}', source='failed')
+                _title_mem_cache[asin] = f'__pending__{asin}'  # block further attempts this request
+
+            fallback = f'__pending__{asin}'
+            _title_mem_cache[asin] = fallback
+            return fallback
+
+        # Build rank map: asin → 1-based bestseller position
+        asin_rank_map = {asin: (i + 1) for i, asin in enumerate(asins_to_fetch)}
+
+        # Score products (both from cache and fresh fetch)
+        if products and len(products) > 0:
+            for i, product in enumerate(products):
+                if not product or product is None:
+                    continue
+                
+                asin = product.get("asin", "")
+                if not asin:
+                    continue
+                
+                # Try to load from score cache first
+                score_data = get_product_analysis_scores(db, asin)
+                if score_data:
+                    score_row = dict(score_data)
+                    analysis_payload = {}
+                    raw_analysis = score_row.get('analysis_data')
+
+                    if raw_analysis:
+                        try:
+                            analysis_payload = json.loads(raw_analysis)
+                        except Exception:
+                            analysis_payload = {}
+
+                    dimensions = analysis_payload.get('dimensions', {}) if isinstance(analysis_payload, dict) else {}
+
+                    def pick_score(column_value, dim_key):
+                        if column_value not in (None, 0, 0.0):
+                            return float(column_value)
+                        return float(dimensions.get(dim_key, {}).get('score', 0))
+
+                    overall_score = score_row.get('overall_score')
+                    if overall_score in (None, 0, 0.0):
+                        overall_score = analysis_payload.get('overall_score', 0) if isinstance(analysis_payload, dict) else 0
+
+                    raw_cached_title = (analysis_payload.get('title') or '').strip()
+
+                    # Use resolve_title to fill DB cache progressively (DB hits are free; max 20 fresh scrapes/request)
+                    cached_title = resolve_title(asin, raw_cached_title)
+
+                    # Read data_quality from stored JSON (written at score time).
+                    # For older records that pre-date data_quality storage, infer from scores.
+                    if isinstance(analysis_payload, dict) and 'data_quality' in analysis_payload:
+                        cached_dq = analysis_payload['data_quality']
+                    else:
+                        # Legacy record — infer: if profitability=0, data was partial/estimated
+                        cached_prof_col = float(score_row.get('profitability_score') or 0)
+                        if cached_prof_col == 0:
+                            cached_dq = 'estimated'
+                        else:
+                            cached_dq = 'full'
+
+                    normalized_cached = {
+                        "asin": asin,
+                        "title": cached_title,
+                        "profitability_score": pick_score(score_row.get('profitability_score'), 'profitability'),
+                        "demand_score": pick_score(score_row.get('demand_score'), 'demand'),
+                        "stability_score": pick_score(score_row.get('stability_score'), 'stability'),
+                        "buybox_winability_score": pick_score(score_row.get('buybox_winability_score'), 'buybox_winability'),
+                        "oos_risk_score": pick_score(score_row.get('oos_risk_score'), 'oos_risk'),
+                        "supply_gap_score": pick_score(score_row.get('supply_gap_score'), 'supply_gap'),
+                        "non_seasonal_score": pick_score(score_row.get('non_seasonal_score'), 'non_seasonal'),
+                        "overall_score": float(overall_score or 0),
+                        "analysis_data": raw_analysis,
+                        "calculated_at": score_row.get('calculated_at'),
+                        "data_quality": cached_dq
+                    }
+
+                    # Recompute weak legacy cache rows when raw data has enough signals
+                    converted_product = convert_keepa_product(product, rank_position=asin_rank_map.get(asin))
+                    if is_weak_cached_score(normalized_cached) and converted_product.get('_has_minimum_data'):
+                        try:
+                            score_result = analyzer.analyze_asin(converted_product)
+                            score_result['data_quality'] = converted_product.get('_data_quality', 'full')
+                            resolved_title = resolve_title(asin, score_result.get('title'))
+                            score_result['title'] = resolved_title
+                            save_product_analysis_scores(db, asin, score_result)
+                            scored_results.append({
+                                "asin": asin,
+                                "title": resolved_title,
+                                "profitability_score": score_result.get('dimensions', {}).get('profitability', {}).get('score', 0),
+                                "demand_score": score_result.get('dimensions', {}).get('demand', {}).get('score', 0),
+                                "stability_score": score_result.get('dimensions', {}).get('stability', {}).get('score', 0),
+                                "buybox_winability_score": score_result.get('dimensions', {}).get('buybox_winability', {}).get('score', 0),
+                                "oos_risk_score": score_result.get('dimensions', {}).get('oos_risk', {}).get('score', 0),
+                                "supply_gap_score": score_result.get('dimensions', {}).get('supply_gap', {}).get('score', 0),
+                                "non_seasonal_score": score_result.get('dimensions', {}).get('non_seasonal', {}).get('score', 0),
+                                "overall_score": score_result.get('overall_score', 0),
+                                "analysis_data": json.dumps(score_result),
+                                "calculated_at": datetime.now().isoformat(),
+                                "data_quality": score_result.get('data_quality', 'full')
+                            })
+                        except Exception as e:
+                            logger.warning(f"Failed to recompute weak cache for {asin}: {e}")
+                            scored_results.append(normalized_cached)
+                    elif is_weak_cached_score(normalized_cached) and not converted_product.get('_has_minimum_data'):
+                        # Still include — asin_rank_map should have provided a rank estimate
+                        scored_results.append(normalized_cached)
+                    else:
+                        scored_results.append(normalized_cached)
+                else:
+                    # Score the product
+                    try:
+                        rank_pos = asin_rank_map.get(asin)
+                        converted_product = convert_keepa_product(product, rank_position=rank_pos)
+                        if not converted_product.get('_has_minimum_data'):
+                            # No data and not in bestseller list at all — skip
+                            continue
+
+                        score_result = analyzer.analyze_asin(converted_product)
+                        dq = converted_product.get('_data_quality', 'full')
+                        score_result['data_quality'] = dq
+
+                        # Resolve title first, then save — so analysis_data has the real title
+                        resolved_title = resolve_title(asin, score_result.get('title'))
+                        score_result['title'] = resolved_title
+                        save_product_analysis_scores(db, asin, score_result)
+
+                        scored_results.append({
+                            "asin": asin,
+                            "title": resolved_title,
+                            "profitability_score": score_result.get('dimensions', {}).get('profitability', {}).get('score', 0),
+                            "demand_score": score_result.get('dimensions', {}).get('demand', {}).get('score', 0),
+                            "stability_score": score_result.get('dimensions', {}).get('stability', {}).get('score', 0),
+                            "buybox_winability_score": score_result.get('dimensions', {}).get('buybox_winability', {}).get('score', 0),
+                            "oos_risk_score": score_result.get('dimensions', {}).get('oos_risk', {}).get('score', 0),
+                            "supply_gap_score": score_result.get('dimensions', {}).get('supply_gap', {}).get('score', 0),
+                            "non_seasonal_score": score_result.get('dimensions', {}).get('non_seasonal', {}).get('score', 0),
+                            "overall_score": score_result.get('overall_score', 0),
+                            "analysis_data": json.dumps(score_result),
+                            "calculated_at": datetime.now().isoformat(),
+                            "data_quality": dq
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to score {asin}: {e}")
+                        continue
+        
+        scored_results.sort(key=lambda x: float(x.get('overall_score') or 0), reverse=True)
+        scored_results = scored_results[:limit]
+
+        return {
+            "category_id": category_id,
+            "total_available": total_available,
+            "fetched": len(asins_to_fetch),
+            "scored": len(scored_results),
+            "from_cache": from_cache,
+            "last_synced": last_synced,
+            "next_sync": next_sync,
+            "token_cost": token_cost,
+            "results": scored_results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing bestsellers for {category_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/{category_id}/research")
+async def get_category_research(
+    category_id: str,
+    limit: int = 50,
+    force_refresh: bool = False,
+):
+    """
+    Clean product research endpoint — returns raw, reliable Keepa data per ASIN.
+    No complex scoring. Just the facts a seller needs:
+    price, BSR, reviews, rating, Amazon competing, FBA fees, brand, price trend.
+    """
+    from app.keepa_client import get_client
+    from app.db import get_conn, get_category_products_from_cache
+    import time as _time
+
+    logger.info(f"[research] category={category_id} limit={limit}")
+    start = _time.time()
+
+    def _csv_latest(series, divisor=1.0):
+        """Return the most recent non-(-1) value from a Keepa CSV series."""
+        if not isinstance(series, list) or not series:
+            return None
+        # Nested [[ts,val], ...]
+        if isinstance(series[-1], list):
+            for entry in reversed(series):
+                if isinstance(entry, list) and len(entry) >= 2 and entry[1] != -1:
+                    return float(entry[1]) / divisor
+            return None
+        # Flat [ts, val, ts, val, ...]
+        for i in range(len(series) - 1, -1, -1):
+            if i % 2 == 1 and series[i] != -1:
+                return float(series[i]) / divisor
+        return None
+
+    def _csv_avg(series, divisor=1.0, last_n=60):
+        """Average of last_n non-(-1) values (pairs) from a flat/nested series."""
+        if not isinstance(series, list) or not series:
+            return None
+        vals = []
+        if isinstance(series[-1], list):
+            for entry in reversed(series):
+                if isinstance(entry, list) and len(entry) >= 2 and entry[1] != -1:
+                    vals.append(float(entry[1]) / divisor)
+                    if len(vals) >= last_n:
+                        break
+        else:
+            for i in range(len(series) - 1, -1, -1):
+                if i % 2 == 1 and series[i] != -1:
+                    vals.append(float(series[i]) / divisor)
+                    if len(vals) >= last_n:
+                        break
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    def _stats_val(stats, key, index, divisor=1.0):
+        arr = stats.get(key) if stats else None
+        if isinstance(arr, list) and len(arr) > index and arr[index] not in (-1, None):
+            return float(arr[index]) / divisor
+        return None
+
+    def _estimate_monthly_sales(bsr):
+        """Rough monthly sales estimate for Amazon India Toys category by BSR."""
+        if not bsr or bsr <= 0:
+            return None
+        if bsr <= 100:    return 800
+        if bsr <= 500:    return 400
+        if bsr <= 2000:   return 150
+        if bsr <= 5000:   return 60
+        if bsr <= 10000:  return 25
+        if bsr <= 30000:  return 10
+        if bsr <= 100000: return 4
+        return 1
+
+    def _opportunity(bsr, reviews, price, amazon_competing):
+        """Simple, transparent 3-level opportunity rating."""
+        reasons = []
+        if amazon_competing:    reasons.append("Amazon on buy box")
+        if reviews and reviews > 3000: reasons.append("High review barrier")
+        if price and price > 3500:     reasons.append("Risky price for India")
+        if bsr and bsr > 80000:        reasons.append("Very low demand")
+
+        # Hard avoids
+        if bsr and bsr > 80000:
+            return {"label": "AVOID", "color": "#ef4444", "reason": "Very low demand (BSR > 80k)"}
+        if price and price > 3500:
+            return {"label": "AVOID", "color": "#ef4444", "reason": "Risky price point for India"}
+
+        # Green: good demand + low review barrier + not dominated by Amazon
+        if (not amazon_competing
+                and bsr and bsr <= 5000
+                and (not reviews or reviews < 200)
+                and (price and 400 <= price <= 2000)):
+            return {"label": "BUY ✓", "color": "#22c55e", "reason": "Low competition + strong demand + good price"}
+
+        # Green even with some reviews if demand is very strong
+        if (not amazon_competing
+                and bsr and bsr <= 2000
+                and (not reviews or reviews < 500)):
+            return {"label": "BUY ✓", "color": "#22c55e", "reason": "Strong demand + Amazon not competing"}
+
+        # Amber: decent opportunity
+        if not amazon_competing and bsr and bsr <= 20000:
+            return {"label": "ANALYSE", "color": "#f59e0b",
+                    "reason": f"Decent demand" + (f", {reviews:,} reviews" if reviews else "")}
+
+        # Amazon competing but good demand — still worth knowing
+        if amazon_competing and bsr and bsr <= 10000:
+            return {"label": "WATCH", "color": "#818cf8",
+                    "reason": "Amazon competing — monitor for gaps or price opportunities"}
+
+        if not amazon_competing:
+            return {"label": "ANALYSE", "color": "#f59e0b", "reason": "Moderate opportunity"}
+
+        return {"label": "AVOID", "color": "#ef4444", "reason": "; ".join(reasons) or "Low opportunity"}
+
+    try:
+        client = get_client()
+        db = get_conn()
+
+        # ── Step 1: get bestseller ASINs ──────────────────────────────────────
+        fetch_limit = min(limit, 100)
+        try:
+            all_asins = client.best_sellers_query(
+                category=category_id, domain='IN', wait=False
+            )
+        except Exception as e:
+            if 'NOT_ENOUGH_TOKEN' in str(e):
+                all_asins = get_category_products_from_cache(db, category_id, fetch_limit)
+            else:
+                raise
+
+        asins = (all_asins or [])[:fetch_limit]
+        if not asins:
+            return {"category_id": category_id, "products": [], "count": 0, "elapsed": 0}
+
+        # ── Step 2: query Keepa for product details ──────────────────────────
+        try:
+            raw = client.query(asins, stats=180, rating=1, wait=False, domain='IN')
+            keepa_map = {p["asin"]: p for p in raw if p and p.get("asin")}
+        except Exception as e:
+            if 'NOT_ENOUGH_TOKEN' in str(e):
+                keepa_map = {}
+            else:
+                raise
+
+        # ── Step 3: build clean result per ASIN ──────────────────────────────
+        products = []
+        for rank_idx, asin in enumerate(asins):
+            p = keepa_map.get(asin, {})
+            csv = p.get("csv") if isinstance(p.get("csv"), list) else []
+            stats = p.get("stats") or {}
+
+            # Price — try Amazon price (csv[0]), then marketplace price (csv[1]), then stats
+            price = _csv_latest(csv[0], 100.0) if len(csv) > 0 else None
+            if not price:
+                price = _csv_latest(csv[1], 100.0) if len(csv) > 1 else None
+            if not price:
+                price = (_stats_val(stats, "avg30", 0, 100.0)
+                         or _stats_val(stats, "avg30", 1, 100.0)
+                         or _stats_val(stats, "avg", 0, 100.0)
+                         or _stats_val(stats, "avg", 1, 100.0))
+            price_30d = (_stats_val(stats, "avg30", 0, 100.0)
+                         or _stats_val(stats, "avg30", 1, 100.0)
+                         or (_csv_avg(csv[0], 100.0, 30) if len(csv) > 0 else None)
+                         or (_csv_avg(csv[1], 100.0, 30) if len(csv) > 1 else None))
+            price_90d = (_stats_val(stats, "avg90", 0, 100.0)
+                         or _stats_val(stats, "avg90", 1, 100.0))
+
+            # Price trend
+            price_trend = "stable"
+            if price and price_30d:
+                diff_pct = ((price - price_30d) / price_30d) * 100
+                if diff_pct > 5:   price_trend = "up"
+                elif diff_pct < -5: price_trend = "down"
+
+            # BSR
+            bsr = _stats_val(stats, "current", 3) or (_csv_latest(csv[3]) if len(csv) > 3 else None)
+
+            # Rating & reviews  (stats.current[16]=rating*10, [17]=reviews)
+            rating = _stats_val(stats, "current", 16, 10.0)
+            reviews = _stats_val(stats, "current", 17)
+            if not rating:
+                rating = _csv_latest(csv[16], 10.0) if len(csv) > 16 else None
+            if not reviews:
+                reviews = _csv_latest(csv[17]) if len(csv) > 17 else None
+
+            # Amazon competing: buyBoxIsAmazon flag (Keepa returns True or 1)
+            # also check if csv[0] (Amazon retail price) has a recent non-(-1) value
+            bba = stats.get("buyBoxIsAmazon")
+            amazon_competing = bool(bba)  # True/1 = Amazon on buy box
+            if not amazon_competing and len(csv) > 0:
+                az_price = _csv_latest(csv[0], 100.0)
+                amazon_competing = bool(az_price and az_price > 0)
+
+            # Title + brand
+            title = (p.get("title") or "").strip() or f"ASIN {asin}"
+            brand = (p.get("brand") or "").strip() or None
+
+            # FBA fees
+            fba_fees_raw = p.get("fbaFees") or {}
+            fba_fee = None
+            if fba_fees_raw:
+                fba_fee = round((fba_fees_raw.get("pickAndPackFee") or 0) / 100.0, 2) or None
+
+            # Referral fee (Amazon India Toys = 9%)
+            referral_pct = 9.0
+            referral_fee = round(price * referral_pct / 100, 2) if price else None
+
+            # Estimated monthly sales
+            monthly_sales = _estimate_monthly_sales(int(bsr) if bsr else None)
+
+            # Simple opportunity
+            opp = _opportunity(
+                bsr=int(bsr) if bsr else None,
+                reviews=int(reviews) if reviews else None,
+                price=price,
+                amazon_competing=amazon_competing,
+            )
+
+            products.append({
+                "rank":              rank_idx + 1,
+                "asin":              asin,
+                "title":             title,
+                "brand":             brand,
+                "price":             round(price, 2) if price else None,
+                "price_30d_avg":     round(price_30d, 2) if price_30d else None,
+                "price_90d_avg":     round(price_90d, 2) if price_90d else None,
+                "price_trend":       price_trend,
+                "bsr":               int(bsr) if bsr else None,
+                "rating":            round(rating, 1) if rating else None,
+                "reviews":           int(reviews) if reviews else None,
+                "amazon_competing":  amazon_competing,
+                "fba_fee":           fba_fee,
+                "referral_fee":      referral_fee,
+                "monthly_sales_est": monthly_sales,
+                "opportunity":       opp,
+                "has_data":          bool(p),
+            })
+
+        # sort: BUY first, then by BSR ascending (=highest demand first)
+        label_order = {"BUY ✓": 0, "ANALYSE": 1, "WATCH": 2, "AVOID": 3}
+        products.sort(key=lambda x: (
+            label_order.get(x["opportunity"]["label"], 1),
+            x["bsr"] if x["bsr"] else 999999
+        ))
+
+        elapsed = round(_time.time() - start, 2)
+        return {
+            "category_id": category_id,
+            "count": len(products),
+            "elapsed": elapsed,
+            "products": products,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[research] error for {category_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/products/{category_id}")
 async def get_category_products(
     category_id: int,
@@ -774,7 +1588,7 @@ async def get_category_products(
             logger.info(f"Got {len(asin_list)} ASINs, fetching details...")
             
             try:
-                product_data_list = client.query(asin_list)
+                product_data_list = client.query(asin_list, domain='IN')
                 
                 for product in product_data_list:
                     if not product:

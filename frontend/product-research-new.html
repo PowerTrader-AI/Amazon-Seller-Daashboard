@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Research — Find Winnable Products</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+
+/* nav */
+.topnav{background:#1e293b;padding:12px 24px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #334155;font-size:13px}
+.topnav a{color:#94a3b8;text-decoration:none;padding:6px 12px;border-radius:6px;transition:.15s}
+.topnav a:hover{background:#334155;color:#e2e8f0}
+.topnav a.active{background:#2563eb;color:#fff}
+.topnav a.new{background:#14532d;color:#86efac}
+.topnav .spacer{flex:1}
+
+.page{max-width:1440px;margin:0 auto;padding:20px 24px}
+
+/* strategy banner */
+.strategy{background:linear-gradient(135deg,#1e3a1e,#1a2e1a);border:1px solid #22c55e44;border-radius:12px;padding:18px 22px;margin-bottom:20px;display:flex;gap:20px;align-items:flex-start}
+.strategy-icon{font-size:32px;line-height:1;flex-shrink:0}
+.strategy h2{font-size:16px;color:#86efac;margin-bottom:6px}
+.strategy p{font-size:13px;color:#94a3b8;line-height:1.6}
+.strategy strong{color:#e2e8f0}
+
+/* controls */
+.controls{background:#1e293b;border-radius:12px;padding:16px 20px;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;border:1px solid #334155}
+.cg{display:flex;flex-direction:column;gap:5px}
+.cg label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.cg select,.cg input[type=number]{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;outline:none}
+.cg select:focus,.cg input:focus{border-color:#3b82f6}
+.cg.wide select{min-width:280px}
+.cg input[type=number]{width:100px}
+.btn{padding:9px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+.btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
+.btn-secondary{background:#334155;color:#e2e8f0}.btn-secondary:hover{background:#3f5068}
+.filter-hint{font-size:11px;color:#64748b;margin-top:3px}
+
+/* column legend */
+.legend{background:#1e293b;border-radius:10px;padding:14px 18px;margin-bottom:16px;border:1px solid #334155}
+.legend-title{font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px}
+.legend-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.legend-item{display:flex;gap:8px;align-items:flex-start}
+.legend-icon{font-size:14px;flex-shrink:0;margin-top:1px}
+.legend-text strong{font-size:12px;color:#e2e8f0;display:block}
+.legend-text span{font-size:11px;color:#64748b;line-height:1.4}
+
+/* summary */
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:16px}
+.sc{background:#1e293b;border-radius:10px;padding:12px 14px;border:1px solid #334155;text-align:center}
+.sc .val{font-size:22px;font-weight:700;margin-bottom:2px}
+.sc .lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+.sc.green .val{color:#22c55e}
+.sc.amber .val{color:#f59e0b}
+.sc.red   .val{color:#ef4444}
+.sc.blue  .val{color:#60a5fa}
+
+/* table */
+.table-wrap{background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155}
+.table-meta{display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid #334155}
+.table-meta h2{font-size:14px;font-weight:600;color:#e2e8f0}
+.table-meta .hint{font-size:11px;color:#64748b}
+.tbl-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{padding:9px 12px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#64748b;border-bottom:1px solid #334155;white-space:nowrap;cursor:pointer;user-select:none;background:#1e293b;position:sticky;top:0}
+th:hover{color:#94a3b8}
+th.sort-asc::after{content:" \u2191"}th.sort-desc::after{content:" \u2193"}
+td{padding:10px 12px;border-bottom:1px solid #0f172a;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#1a2540}
+
+/* product cell */
+.prod-wrap{display:flex;flex-direction:column;gap:3px;max-width:300px}
+.prod-title{color:#e2e8f0;font-size:12px;line-height:1.4;font-weight:500}
+.prod-sub{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.asin-link{color:#60a5fa;font-size:11px;text-decoration:none;font-family:monospace}
+.asin-link:hover{text-decoration:underline}
+.brand-tag{font-size:10px;color:#94a3b8;background:#0f172a;padding:1px 5px;border-radius:3px}
+
+/* BSR */
+.bsr{font-family:monospace;font-size:12px;font-weight:700;padding:3px 7px;border-radius:5px;white-space:nowrap}
+.bsr-hot {background:#14532d22;color:#22c55e;border:1px solid #22c55e44}
+.bsr-warm{background:#78350f22;color:#f59e0b;border:1px solid #f59e0b44}
+.bsr-cold{background:#1e293b;color:#64748b;border:1px solid #334155}
+
+/* reviews */
+.rev-bar-wrap{display:flex;align-items:center;gap:7px}
+.rev-bar{width:60px;height:6px;background:#334155;border-radius:3px;flex-shrink:0}
+.rev-fill{height:100%;border-radius:3px;transition:.3s}
+.rev-num{font-size:12px;font-weight:600;min-width:36px}
+.rev-easy{color:#22c55e}.rev-medium{color:#f59e0b}.rev-hard{color:#ef4444}
+
+/* price */
+.price-main{font-weight:600;font-size:13px}
+.price-sub{font-size:10px;color:#64748b;margin-top:1px}
+.trend-up::before{content:"\u25b2 ";font-size:9px;color:#22c55e}
+.trend-down::before{content:"\u25bc ";font-size:9px;color:#ef4444}
+
+/* caniwin */
+.cw{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:7px;font-size:11px;font-weight:700;white-space:nowrap}
+.cw-yes  {background:#14532d;color:#86efac;border:1px solid #22c55e55}
+.cw-maybe{background:#422006;color:#fde68a;border:1px solid #f59e0b55}
+.cw-watch{background:#1e1b4b;color:#a5b4fc;border:1px solid #6366f155}
+.cw-no   {background:#450a0a;color:#fca5a5;border:1px solid #ef444455}
+
+/* az badge */
+.az{padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.az-yes{background:#7f1d1d;color:#fca5a5}
+.az-no {background:#14532d;color:#86efac}
+
+/* sales est */
+.sales{font-size:12px;font-weight:600;color:#c084fc}
+
+/* action */
+.action-cell{display:flex;gap:5px}
+.btn-sm{padding:4px 9px;font-size:11px;border:none;border-radius:5px;cursor:pointer;font-weight:600;transition:.15s}
+
+/* loading */
+.loading{text-align:center;padding:60px 20px;color:#64748b}
+.spinner{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#3b82f6;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:60px 20px;color:#64748b;font-size:15px}
+.err{background:#7f1d1d;border:1px solid #dc2626;color:#fca5a5;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:14px;display:none}
+
+/* profitability */
+.calc{background:#1e293b;border-radius:12px;padding:20px;margin-top:16px;border:1px solid #334155}
+.calc h2{font-size:15px;font-weight:700;color:#e2e8f0;margin-bottom:4px}
+.calc .subtitle{font-size:12px;color:#64748b;margin-bottom:16px}
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.calc-row label{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600;display:block;margin-bottom:5px}
+.calc-row input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;outline:none;width:100%}
+.calc-row input:focus{border-color:#3b82f6}
+.calc-results{grid-column:1/-1;background:#0f172a;border-radius:10px;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px}
+.cr-item .v{font-size:20px;font-weight:700}
+.cr-item .l{font-size:10px;color:#64748b;margin-top:2px;text-transform:uppercase}
+.cr-item .v.pos{color:#22c55e}.cr-item .v.neg{color:#ef4444}.cr-item .v.neu{color:#e2e8f0}
+
+@media(max-width:850px){.controls{flex-direction:column}.calc-grid{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a href="/ui/dashboard.html">&#128202; Category Analysis</a>
+  <a href="/ui/product-research.html" class="active new">&#128269; Product Research</a>
+  <a href="/ui/bestsellers.html">&#127942; Deep Score</a>
+  <div class="spacer"></div>
+  <span id="statusText" style="font-size:12px;color:#64748b">Ready</span>
+</nav>
+
+<div class="page">
+
+  <!-- Strategy banner -->
+  <div class="strategy">
+    <div class="strategy-icon">&#127919;</div>
+    <div>
+      <h2>How to find products YOU can win</h2>
+      <p>
+        The top 5 bestsellers have <strong>10,000&#x2013;30,000 reviews</strong> &mdash; they are untouchable for a new seller.<br>
+        But <strong>ranks #20&#x2013;#100</strong> often have products with <strong>50&#x2013;500 reviews, good demand, and no Amazon</strong> &mdash; these are your opportunities.<br>
+        <strong>Strategy:</strong> Find products with BSR &lt; 30,000 (real demand) + reviews &lt; 500 (low barrier) + Amazon not selling = winnable gap.
+      </p>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div class="err" id="errMsg"></div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="cg wide">
+      <label>Category</label>
+      <select id="catSel"><option value="">&#x2014; Select a category &#x2014;</option></select>
+    </div>
+    <div class="cg">
+      <label>Show top</label>
+      <select id="limitSel">
+        <option value="50" selected>50 products</option>
+        <option value="100">100 products</option>
+      </select>
+    </div>
+    <div class="cg">
+      <label>Max reviews <span style="color:#22c55e">&#x2190; key filter</span></label>
+      <input type="number" id="maxRev" value="500" min="0" placeholder="e.g. 500">
+      <div class="filter-hint">Lower = easier to rank against</div>
+    </div>
+    <div class="cg">
+      <label>Price range &#x20B9;</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" id="minP" placeholder="Min" value="200" style="width:80px">
+        <span style="color:#64748b">&#x2013;</span>
+        <input type="number" id="maxP" placeholder="Max" value="3000" style="width:80px">
+      </div>
+      <div class="filter-hint">&#x20B9;200&#x2013;&#x20B9;2000 is the sweet spot</div>
+    </div>
+    <div class="cg" style="flex-direction:row;align-items:center;gap:8px;padding-bottom:2px">
+      <label style="margin-bottom:0;cursor:pointer;display:flex;align-items:center;gap:7px;font-size:12px;color:#94a3b8;text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="hideAz" checked style="width:15px;height:15px;accent-color:#3b82f6;cursor:pointer">
+        Hide Amazon products
+      </label>
+    </div>
+    <div class="cg" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="runResearch(false)">&#128269; Find Products</button>
+        <button class="btn btn-secondary" onclick="runResearch(true)" title="Force fresh data from Keepa">&#8634; Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Column legend -->
+  <details class="legend" id="legendBox">
+    <summary style="cursor:pointer;font-size:12px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;list-style:none;display:flex;justify-content:space-between">
+      <span>&#128214; What do these columns mean?</span>
+      <span style="color:#64748b;font-weight:400">click to expand</span>
+    </summary>
+    <div style="margin-top:12px">
+    <div class="legend-grid">
+      <div class="legend-item"><div class="legend-icon">&#128202;</div><div class="legend-text"><strong>BSR (Best Seller Rank)</strong><span>Amazon's demand ranking. #1 = most sold. Lower is better. BSR &lt;5,000 = strong daily sales. BSR &gt;80,000 = very slow sales.</span></div></div>
+      <div class="legend-item"><div class="legend-icon">&#11088;</div><div class="legend-text"><strong>Reviews</strong><span>How many customer reviews top sellers have. <span style="color:#22c55e">&lt;200 = easy to compete.</span> <span style="color:#f59e0b">200&#x2013;1000 = manageable.</span> <span style="color:#ef4444">&gt;1000 = hard to rank.</span></span></div></div>
+      <div class="legend-item"><div class="legend-icon">&#128176;</div><div class="legend-text"><strong>Price + Trend</strong><span>Current selling price. &#x25B2; = rising (good margin). &#x25BC; = dropping (price war). &#x20B9;400&#x2013;&#x20B9;2000 is the India sweet spot.</span></div></div>
+      <div class="legend-item"><div class="legend-icon">&#127978;</div><div class="legend-text"><strong>Amazon Competing?</strong><span>If Amazon itself sells this product, you will almost never win the Buy Box. Always avoid these.</span></div></div>
+      <div class="legend-item"><div class="legend-icon">&#128230;</div><div class="legend-text"><strong>Est. Sales/month</strong><span>Rough estimate from BSR. Not exact but useful for comparing demand. A product with 150 sales/month at &#x20B9;800 = &#x20B9;1.2L revenue pool.</span></div></div>
+      <div class="legend-item"><div class="legend-icon">&#127942;</div><div class="legend-text"><strong>Can I Win?</strong><span><span style="color:#22c55e">WIN</span> = great opportunity. <span style="color:#f59e0b">MAYBE</span> = worth analysing. <span style="color:#a5b4fc">WATCH</span> = Amazon competing but high demand. <span style="color:#ef4444">HARD</span> = too competitive.</span></div></div>
+    </div>
+    </div>
+  </details>
+
+  <!-- Loading -->
+  <div class="loading" id="loadDiv" style="display:none">
+    <div class="spinner"></div>
+    <div style="font-size:14px">Fetching Amazon data&#x2026;</div>
+    <div style="font-size:12px;color:#475569;margin-top:6px">~5&#x2013;15 seconds. We query Keepa live for you.</div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary" id="summCards" style="display:none">
+    <div class="sc"><div class="val blue" id="sTotal">&#x2014;</div><div class="lbl">Products Found</div></div>
+    <div class="sc green"><div class="val" id="sWin">&#x2014;</div><div class="lbl">&#x2705; WIN opportunities</div></div>
+    <div class="sc amber"><div class="val" id="sMaybe">&#x2014;</div><div class="lbl">&#x26A0; Worth analysing</div></div>
+    <div class="sc"><div class="val" id="sAvgRev">&#x2014;</div><div class="lbl">Avg reviews (filtered)</div></div>
+    <div class="sc"><div class="val" id="sAvgPrice">&#x2014;</div><div class="lbl">Avg price</div></div>
+    <div class="sc red"><div class="val" id="sAzCount">&#x2014;</div><div class="lbl">Amazon competing</div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap" id="tableWrap" style="display:none">
+    <div class="table-meta">
+      <h2 id="tableTitle">Results</h2>
+      <span class="hint" id="tableMeta"></span>
+    </div>
+    <div class="tbl-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th onclick="sort('title')">Product</th>
+          <th onclick="sort('bsr')" title="Best Seller Rank - lower = more demand">BSR</th>
+          <th onclick="sort('reviews')" title="Review count - lower = easier to compete">Reviews</th>
+          <th onclick="sort('price')" title="Current price + 30-day trend">Price</th>
+          <th onclick="sort('amazon_competing')" title="Is Amazon selling this?">Amazon?</th>
+          <th onclick="sort('monthly_sales_est')" title="Estimated monthly sales from BSR">Sales/mo</th>
+          <th onclick="sort('signal')" title="Can you realistically win this product?">Can I Win?</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tBody"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty" id="emptyDiv" style="display:none">
+    <div style="font-size:40px;margin-bottom:12px">&#128269;</div>
+    <div style="font-size:15px;margin-bottom:6px">No products match your filters</div>
+    <div style="font-size:13px;color:#475569">Try increasing the max reviews filter (currently set to <span id="emptyRevHint"></span>) or adjusting the price range</div>
+  </div>
+
+  <!-- Profitability calculator -->
+  <div class="calc" id="calcWrap">
+    <h2>&#128176; Quick Profitability Check</h2>
+    <div class="subtitle">Click "&#x20B9; Check" on any row to prefill. Fill in your sourcing cost to see your real margin.</div>
+    <div class="calc-grid">
+      <div class="calc-row">
+        <label>Selling Price (&#x20B9;) <span id="chintP" style="color:#60a5fa;font-size:10px;font-weight:400"></span></label>
+        <input type="number" id="cSell" placeholder="e.g. 799" oninput="calc()">
+      </div>
+      <div class="calc-row">
+        <label>Your Sourcing Cost (&#x20B9;)</label>
+        <input type="number" id="cCost" placeholder="e.g. 250" oninput="calc()">
+      </div>
+      <div class="calc-row">
+        <label>FBA Fee (&#x20B9;) <span id="chintF" style="color:#60a5fa;font-size:10px;font-weight:400"></span></label>
+        <input type="number" id="cFba" placeholder="e.g. 60" oninput="calc()">
+      </div>
+      <div class="calc-row">
+        <label>Referral % <span style="color:#64748b;font-weight:400;text-transform:none">(Toys = 9%)</span></label>
+        <input type="number" id="cRef" value="9" min="0" max="30" step="0.5" oninput="calc()">
+      </div>
+      <div class="calc-results" id="calcRes">
+        <div class="cr-item"><div class="v neu" id="crRef">&#x2014;</div><div class="l">Referral Fee</div></div>
+        <div class="cr-item"><div class="v neu" id="crNet">&#x2014;</div><div class="l">Net Revenue</div></div>
+        <div class="cr-item"><div class="v neu" id="crProfit">&#x2014;</div><div class="l">Profit / unit</div></div>
+        <div class="cr-item"><div class="v neu" id="crMargin">&#x2014;</div><div class="l">Margin %</div></div>
+        <div class="cr-item"><div class="v neu" id="crROI">&#x2014;</div><div class="l">ROI %</div></div>
+        <div class="cr-item"><div class="v neu" id="crMoProfit">&#x2014;</div><div class="l">Monthly Profit</div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const getBase = () => {
+  const u = new URL(location.href);
+  if (u.hostname.includes('app.github.dev')) {
+    return u.protocol + '//' + u.hostname.replace(/-\d+\./, '-8000.');
+  }
+  if (u.port === '8080') return 'http://localhost:8000';
+  return u.origin;
+};
+const BASE = getBase();
+
+// state
+let _raw    = [];
+let _shown  = [];
+let _sortCol = 'signal';
+let _sortDir = 1;
+let _calcMonthly = null;
+
+// boot
+async function init() {
+  try {
+    const r = await fetch(BASE + '/category/analysis');
+    const d = await r.json();
+    const sel = document.getElementById('catSel');
+    (d.opportunities || []).forEach(function(c) {
+      const o = document.createElement('option');
+      o.value = c.category_id;
+      o.textContent = c.name + '  (' + c.products.toLocaleString() + ' products)';
+      sel.appendChild(o);
+    });
+    status('Ready — select a category and click Find Products');
+  } catch(e) { showErr('Could not load categories: ' + e.message); }
+}
+
+// main research call
+async function runResearch(force) {
+  const cat = document.getElementById('catSel').value;
+  if (!cat) { showErr('Please select a category first.'); return; }
+  clearErr();
+  show('loadDiv', true);
+  show('tableWrap', false);
+  show('summCards', false);
+  show('emptyDiv', false);
+  status('Fetching live data from Keepa...');
+
+  const limit = document.getElementById('limitSel').value;
+  const url   = BASE + '/category/' + cat + '/research?limit=' + limit + (force ? '&force_refresh=1' : '');
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      const b = await r.json().catch(function(){ return {detail:'Unknown error'}; });
+      throw new Error(b.detail);
+    }
+    const d = await r.json();
+    _raw = d.products || [];
+    status('Loaded ' + _raw.length + ' products in ' + d.elapsed + 's — applying your filters...');
+    applyAndRender();
+  } catch(e) {
+    showErr('Error: ' + e.message);
+    status('Failed');
+  } finally {
+    show('loadDiv', false);
+  }
+}
+
+// filters
+function applyAndRender() {
+  const maxRev = parseInt(document.getElementById('maxRev').value) || Infinity;
+  const minP   = parseFloat(document.getElementById('minP').value) || 0;
+  const maxP   = parseFloat(document.getElementById('maxP').value) || Infinity;
+  const hideAz = document.getElementById('hideAz').checked;
+
+  _shown = _raw.filter(function(p) {
+    if (hideAz && p.amazon_competing) return false;
+    if (p.reviews !== null && p.reviews > maxRev) return false;
+    if (p.price && (p.price < minP || p.price > maxP)) return false;
+    return true;
+  });
+
+  renderSummary();
+  renderTable();
+}
+
+// wire filter inputs
+['maxRev','minP','maxP'].forEach(function(id) {
+  document.getElementById(id).addEventListener('change', function() {
+    if (_raw.length) applyAndRender();
+  });
+});
+document.getElementById('hideAz').addEventListener('change', function() {
+  if (_raw.length) applyAndRender();
+});
+
+// summary
+function renderSummary() {
+  show('summCards', true);
+  const win   = _shown.filter(function(p){ return p.signal === 'WIN'; }).length;
+  const maybe = _shown.filter(function(p){ return p.signal === 'MAYBE'; }).length;
+  const az    = _shown.filter(function(p){ return p.amazon_competing; }).length;
+  const prices = _shown.filter(function(p){ return p.price; }).map(function(p){ return p.price; });
+  const revs   = _shown.filter(function(p){ return p.reviews !== null; }).map(function(p){ return p.reviews; });
+  setTxt('sTotal',    _shown.length);
+  setTxt('sWin',      win);
+  setTxt('sMaybe',    maybe);
+  setTxt('sAvgRev',   revs.length   ? Math.round(avg(revs))   : '—');
+  setTxt('sAvgPrice', prices.length ? ('₹' + Math.round(avg(prices))) : '—');
+  setTxt('sAzCount',  az + ' products');
+}
+
+// table
+var SIG_ORDER = {WIN:0, MAYBE:1, WATCH:2, HARD:3};
+
+function renderTable() {
+  const tbody = document.getElementById('tBody');
+  document.getElementById('tableTitle').textContent =
+    _shown.length + ' products' + (_shown.length < _raw.length ? ' (filtered from ' + _raw.length + ')' : '');
+  document.getElementById('tableMeta').textContent =
+    'Sorted by: ' + _sortCol + ' ' + (_sortDir === 1 ? '↑' : '↓');
+
+  if (!_shown.length) {
+    show('tableWrap', false);
+    document.getElementById('emptyRevHint').textContent =
+      document.getElementById('maxRev').value || '500';
+    show('emptyDiv', true);
+    return;
+  }
+  show('tableWrap', true);
+  show('emptyDiv', false);
+
+  const sorted = _shown.slice().sort(function(a, b) {
+    var va, vb;
+    if (_sortCol === 'signal')           { va = SIG_ORDER[a.signal] != null ? SIG_ORDER[a.signal] : 9; vb = SIG_ORDER[b.signal] != null ? SIG_ORDER[b.signal] : 9; }
+    else if (_sortCol === 'bsr')         { va = a.bsr   || 999999; vb = b.bsr   || 999999; }
+    else if (_sortCol === 'reviews')     { va = a.reviews != null ? a.reviews : 999999; vb = b.reviews != null ? b.reviews : 999999; }
+    else if (_sortCol === 'price')       { va = a.price  || 0; vb = b.price  || 0; }
+    else if (_sortCol === 'monthly_sales_est') { va = a.monthly_sales_est || 0; vb = b.monthly_sales_est || 0; }
+    else if (_sortCol === 'amazon_competing') { va = a.amazon_competing ? 1 : 0; vb = b.amazon_competing ? 1 : 0; }
+    else { va = String(a[_sortCol] || ''); vb = String(b[_sortCol] || ''); }
+    if (typeof va === 'string') return _sortDir * va.localeCompare(vb);
+    return _sortDir * (va - vb);
+  });
+
+  tbody.innerHTML = '';
+  sorted.forEach(function(p, i) { tbody.appendChild(buildRow(p, i + 1)); });
+
+  document.querySelectorAll('th[onclick]').forEach(function(th) {
+    th.classList.remove('sort-asc', 'sort-desc');
+    var m = th.getAttribute('onclick').match(/sort\('(.+?)'\)/);
+    if (m && m[1] === _sortCol) th.classList.add(_sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+
+function sort(col) {
+  if (_sortCol === col) { _sortDir *= -1; }
+  else { _sortCol = col; _sortDir = ['signal','bsr','reviews'].indexOf(col) >= 0 ? 1 : -1; }
+  renderTable();
+}
+
+function buildRow(p, i) {
+  const tr = document.createElement('tr');
+
+  // BSR
+  var bsrCls = (!p.bsr) ? 'bsr-cold' : p.bsr <= 5000 ? 'bsr-hot' : p.bsr <= 30000 ? 'bsr-warm' : 'bsr-cold';
+  var bsrHtml = p.bsr
+    ? '<span class="bsr ' + bsrCls + '">#' + p.bsr.toLocaleString() + '</span>'
+    : '<span style="color:#475569">—</span>';
+
+  // Reviews bar
+  var revPct  = p.reviews !== null ? Math.min((p.reviews / 1000) * 100, 100) : 0;
+  var revCls  = p.reviews === null ? '' : p.reviews < 200 ? 'rev-easy' : p.reviews < 800 ? 'rev-medium' : 'rev-hard';
+  var revFill = p.reviews < 200   ? '#22c55e' : p.reviews < 800 ? '#f59e0b' : '#ef4444';
+  var stars   = p.rating ? '★'.repeat(Math.round(p.rating)) + '☆'.repeat(5 - Math.round(p.rating)) + ' ' + p.rating : '';
+  var revHtml = p.reviews !== null
+    ? '<div class="rev-bar-wrap">'
+      + '<div class="rev-bar"><div class="rev-fill" style="width:' + revPct + '%;background:' + revFill + '"></div></div>'
+      + '<span class="rev-num ' + revCls + '">' + p.reviews.toLocaleString() + '</span>'
+      + '</div>'
+      + (stars ? '<div style="font-size:10px;color:#64748b;margin-top:2px">' + esc(stars) + '</div>' : '')
+    : '<span style="color:#475569">—</span>';
+
+  // Price
+  var trendHtml = p.price_trend === 'up'   ? '<span class="trend-up"></span>'
+                : p.price_trend === 'down' ? '<span class="trend-down"></span>'
+                : '';
+  var priceHtml = p.price
+    ? '<div class="price-main">' + trendHtml + '₹' + p.price.toLocaleString() + '</div>'
+      + (p.price_30d_avg ? '<div class="price-sub">30d avg ₹' + p.price_30d_avg.toLocaleString() + '</div>' : '')
+    : '<span style="color:#475569">—</span>';
+
+  // Can I Win badge
+  var cwMap = {
+    WIN:   ['cw-yes',   '✅ WIN'],
+    MAYBE: ['cw-maybe', '⚠ MAYBE'],
+    WATCH: ['cw-watch', '👀 WATCH'],
+    HARD:  ['cw-no',    '❌ HARD']
+  };
+  var cwd = cwMap[p.signal] || cwMap.HARD;
+  var sigHtml = '<div>'
+    + '<span class="cw ' + cwd[0] + '">' + cwd[1] + '</span>'
+    + '<div style="font-size:10px;color:#64748b;margin-top:4px;max-width:160px;line-height:1.3">' + esc(p.signal_reason || '') + '</div>'
+    + '</div>';
+
+  // Amazon badge
+  var azHtml = p.amazon_competing
+    ? '<span class="az az-yes">⚠ YES — avoid</span>'
+    : '<span class="az az-no">✓ NO — safe</span>';
+
+  // Sales estimate
+  var salesHtml = p.monthly_sales_est
+    ? '<div class="sales">~' + p.monthly_sales_est.toLocaleString() + '/mo</div>'
+      + (p.price && p.monthly_sales_est ? '<div style="font-size:10px;color:#64748b">₹' + Math.round(p.price * p.monthly_sales_est).toLocaleString() + ' pool</div>' : '')
+    : '<span style="color:#475569">—</span>';
+
+  // Title
+  var rawTitle = p.title || '';
+  var titleHtml = (rawTitle.startsWith('ASIN ') || rawTitle.startsWith('__'))
+    ? '<span style="color:#475569;font-style:italic">Title not indexed yet</span>'
+    : esc(rawTitle);
+
+  tr.innerHTML =
+    '<td style="color:#475569;font-size:12px;font-weight:600">' + i + '</td>'
+    + '<td><div class="prod-wrap">'
+    + '<div class="prod-title">' + titleHtml + '</div>'
+    + '<div class="prod-sub">'
+    + '<a href="https://www.amazon.in/dp/' + p.asin + '" target="_blank" class="asin-link">' + p.asin + ' ↗</a>'
+    + (p.brand ? '<span class="brand-tag">' + esc(p.brand) + '</span>' : '')
+    + (!p.has_data ? '<span style="font-size:10px;color:#475569;background:#0f172a;padding:1px 4px;border-radius:3px">no history</span>' : '')
+    + '</div></div></td>'
+    + '<td>' + bsrHtml + '</td>'
+    + '<td>' + revHtml + '</td>'
+    + '<td>' + priceHtml + '</td>'
+    + '<td>' + azHtml + '</td>'
+    + '<td>' + salesHtml + '</td>'
+    + '<td>' + sigHtml + '</td>'
+    + '<td><div class="action-cell">'
+    + '<button class="btn-sm btn-primary" onclick="prefillCalc(\'' + p.asin + '\',' + (p.price || 0) + ',' + (p.fba_fee || 0) + ',' + (p.monthly_sales_est || 0) + ')" style="background:#1d4ed8;color:#fff">₹ Check</button>'
+    + '<button class="btn-sm btn-secondary" onclick="copyAsin(\'' + p.asin + '\')" style="background:#334155;color:#e2e8f0">Copy</button>'
+    + '</div></td>';
+  return tr;
+}
+
+// calculator
+function prefillCalc(asin, price, fba, monthly) {
+  if (price) document.getElementById('cSell').value = price;
+  if (fba)   document.getElementById('cFba').value  = fba;
+  setTxt('chintP', price ? ('(' + asin + ')') : '');
+  setTxt('chintF', fba   ? '(Keepa estimate)' : '');
+  _calcMonthly = monthly || null;
+  document.getElementById('calcWrap').scrollIntoView({behavior: 'smooth'});
+  calc();
+}
+
+function calc() {
+  const sell = +document.getElementById('cSell').value || 0;
+  const cost = +document.getElementById('cCost').value || 0;
+  const fba  = +document.getElementById('cFba').value  || 0;
+  const ref  = +document.getElementById('cRef').value  || 9;
+  if (!sell) {
+    ['crRef','crNet','crProfit','crMargin','crROI','crMoProfit'].forEach(function(id) { setTxt(id, '—'); });
+    return;
+  }
+  const refFee  = r2(sell * ref / 100);
+  const net     = r2(sell - refFee - fba);
+  const profit  = r2(net - cost);
+  const margin  = sell ? r2((profit / sell) * 100) : 0;
+  const roi     = cost ? r2((profit / cost) * 100)  : null;
+  const moProft = _calcMonthly ? r2(profit * _calcMonthly) : null;
+
+  setTxt('crRef', '₹' + refFee);
+  setTxt('crNet', '₹' + net);
+  setColour('crProfit',  '₹' + profit,         profit >= 0,  profit > -10);
+  setColour('crMargin',  margin + '%',          margin >= 20, margin >= 10);
+  setTxt('crROI',    roi     !== null ? (roi + '%')    : '—');
+  setTxt('crMoProfit', moProft !== null ? ('₹' + moProft.toLocaleString()) : '—');
+}
+
+// helpers
+function r2(n)    { return Math.round(n * 100) / 100; }
+function avg(arr) { return arr.reduce(function(a,b){ return a + b; }, 0) / arr.length; }
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+function setTxt(id, v)    { document.getElementById(id).textContent = v; }
+function setColour(id, text, good, ok) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className   = 'v ' + (good ? 'pos' : (ok ? 'neu' : 'neg'));
+}
+function show(id, v) { document.getElementById(id).style.display = v ? '' : 'none'; }
+function status(s)   { document.getElementById('statusText').textContent = s; }
+function showErr(msg){ const el = document.getElementById('errMsg'); el.textContent = msg; el.style.display = ''; }
+function clearErr()  { document.getElementById('errMsg').style.display = 'none'; }
+function copyAsin(t) { navigator.clipboard.writeText(t).then(function(){ status('Copied ' + t); }); }
+
+init();
+</script>
+</body>
+</html>

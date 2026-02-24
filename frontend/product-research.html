@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Product Research — Amazon Seller Tool</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+
+/* ── Top nav ─────────────────────────────────────────────── */
+.topnav{background:#1e293b;padding:14px 24px;display:flex;align-items:center;gap:20px;border-bottom:1px solid #334155}
+.topnav .logo{font-size:18px;font-weight:700;color:#60a5fa;text-decoration:none}
+.topnav a{color:#94a3b8;text-decoration:none;font-size:14px;padding:6px 12px;border-radius:6px;transition:.15s}
+.topnav a:hover,.topnav a.active{background:#2563eb;color:#fff}
+.topnav .spacer{flex:1}
+.topnav .status{font-size:12px;color:#64748b}
+
+/* ── Layout ──────────────────────────────────────────────── */
+.page{max-width:1400px;margin:0 auto;padding:24px}
+.page-header{margin-bottom:24px}
+.page-header h1{font-size:26px;font-weight:700;color:#e2e8f0;margin-bottom:4px}
+.page-header p{color:#64748b;font-size:14px}
+
+/* ── Controls bar ──────────────────────────────────────────*/
+.controls{background:#1e293b;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.ctrl-group{display:flex;flex-direction:column;gap:5px}
+.ctrl-group label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.ctrl-group select,.ctrl-group input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:14px;outline:none}
+.ctrl-group select:focus,.ctrl-group input:focus{border-color:#3b82f6}
+.ctrl-group input[type=number]{width:100px}
+.ctrl-group.wide select{min-width:260px}
+.btn{padding:9px 20px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+.btn-primary{background:#2563eb;color:#fff}.btn-primary:hover{background:#1d4ed8}
+.btn-secondary{background:#334155;color:#e2e8f0}.btn-secondary:hover{background:#3f5068}
+.btn-sm{padding:5px 10px;font-size:12px}
+.check-group{display:flex;align-items:center;gap:7px;padding-bottom:3px}
+.check-group input{width:16px;height:16px;cursor:pointer;accent-color:#3b82f6}
+.check-group label{font-size:13px;color:#cbd5e1;cursor:pointer}
+
+/* ── Summary cards ─────────────────────────────────────────*/
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:20px}
+.sc{background:#1e293b;border-radius:10px;padding:14px 16px;border:1px solid #334155}
+.sc .val{font-size:22px;font-weight:700;color:#60a5fa;margin-bottom:2px}
+.sc .lbl{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+.sc.green .val{color:#22c55e}
+.sc.amber .val{color:#f59e0b}
+.sc.red .val{color:#ef4444}
+
+/* ── Table ──────────────────────────────────────────────── */
+.table-wrap{background:#1e293b;border-radius:12px;overflow:hidden;border:1px solid #334155}
+.table-meta{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #334155}
+.table-meta h2{font-size:15px;font-weight:600;color:#e2e8f0}
+.table-meta .hint{font-size:12px;color:#64748b}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{padding:10px 12px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#64748b;border-bottom:1px solid #334155;white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{color:#94a3b8}
+th.sort-asc::after{content:" ↑"}
+th.sort-desc::after{content:" ↓"}
+td{padding:10px 12px;border-bottom:1px solid #1e293b;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#253044}
+.num{text-align:right}
+.rank-num{font-weight:700;color:#475569;min-width:28px;display:inline-block;text-align:center}
+
+/* Product cell */
+.prod-cell{display:flex;flex-direction:column;gap:3px}
+.prod-title{color:#e2e8f0;font-weight:500;line-height:1.35;max-width:340px}
+.prod-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:2px}
+.asin-link{color:#60a5fa;font-size:11px;text-decoration:none;font-family:monospace}
+.asin-link:hover{text-decoration:underline}
+.brand-tag{font-size:11px;color:#94a3b8;background:#0f172a;padding:1px 6px;border-radius:4px}
+.no-data-tag{font-size:10px;color:#64748b;background:#1e293b;border:1px solid #334155;padding:1px 5px;border-radius:4px}
+
+/* Price */
+.price-cell{white-space:nowrap}
+.price-main{font-weight:600;font-size:14px}
+.price-avg{font-size:11px;color:#64748b;margin-top:2px}
+.trend-up{color:#22c55e}
+.trend-down{color:#ef4444}
+.trend-stable{color:#64748b}
+
+/* BSR */
+.bsr-badge{display:inline-block;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:3px 8px;font-family:monospace;font-size:12px;font-weight:600;color:#e2e8f0}
+.bsr-hot{border-color:#22c55e;color:#22c55e}
+.bsr-warm{border-color:#f59e0b;color:#f59e0b}
+.bsr-cold{border-color:#64748b;color:#64748b}
+
+/* Reviews */
+.stars{color:#f59e0b;font-size:12px;letter-spacing:-1px}
+.review-count{font-size:11px;color:#94a3b8;margin-left:3px}
+.rev-low{color:#22c55e}
+.rev-med{color:#f59e0b}
+.rev-high{color:#ef4444}
+
+/* Amazon badge */
+.az-badge{display:inline-block;padding:3px 8px;border-radius:5px;font-size:11px;font-weight:700;white-space:nowrap}
+.az-yes{background:#7f1d1d;color:#fca5a5}
+.az-no{background:#14532d;color:#86efac}
+
+/* Opportunity badge */
+.opp-badge{display:inline-block;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap}
+
+/* Sales est. */
+.sales-est{font-size:13px;font-weight:600;color:#c084fc}
+.sales-na{color:#475569}
+
+/* Actions */
+.action-cell{display:flex;gap:6px;flex-wrap:nowrap}
+
+/* ── Profitability panel ────────────────────────────────── */
+.calc-panel{background:#1e293b;border-radius:12px;padding:20px;margin-top:20px;border:1px solid #334155}
+.calc-panel h2{font-size:16px;font-weight:600;color:#e2e8f0;margin-bottom:4px}
+.calc-panel p{font-size:12px;color:#64748b;margin-bottom:16px}
+.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.calc-row{display:flex;flex-direction:column;gap:5px}
+.calc-row label{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;font-weight:600}
+.calc-row input{background:#0f172a;border:1px solid #334155;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:14px;outline:none;width:100%}
+.calc-row input:focus{border-color:#3b82f6}
+.calc-result{grid-column:1/-1;background:#0f172a;border-radius:10px;padding:16px;margin-top:4px}
+.calc-result-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+.calc-item .val{font-size:18px;font-weight:700}
+.calc-item .lbl{font-size:11px;color:#64748b;margin-top:2px}
+.calc-item.pos .val{color:#22c55e}
+.calc-item.neg .val{color:#ef4444}
+.calc-item .val.neutral{color:#e2e8f0}
+.calc-divider{height:1px;background:#1e293b;grid-column:1/-1}
+
+/* ── States ─────────────────────────────────────────────── */
+.loading{display:none;text-align:center;padding:60px 20px;color:#64748b}
+.loading .spinner{width:36px;height:36px;border:3px solid #1e293b;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:60px 20px;color:#64748b;font-size:15px}
+.empty svg{margin-bottom:12px;opacity:.3}
+.error-msg{background:#7f1d1d;border:1px solid #dc2626;color:#fca5a5;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:14px;display:none}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media(max-width:900px){
+  .controls{flex-direction:column}
+  .calc-grid{grid-template-columns:1fr}
+  .summary{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+
+<!-- Top nav -->
+<nav class="topnav">
+  <a class="logo" href="/ui/dashboard.html">🛒 Seller Tool</a>
+  <a href="/ui/dashboard.html">📊 Category Analysis</a>
+  <a href="/ui/product-research.html" class="active">🔍 Product Research</a>
+  <a href="/ui/bestsellers.html">🏆 Bestsellers Score</a>
+  <div class="spacer"></div>
+  <span class="status" id="statusText">Ready</span>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <h1>🔍 Product Research</h1>
+    <p>Real data from Amazon bestsellers. Identify products worth sourcing — before your competitors do.</p>
+  </div>
+
+  <div id="errorMsg" class="error-msg"></div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="ctrl-group wide">
+      <label>Category</label>
+      <select id="categorySelect">
+        <option value="">— Select a category —</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Products to fetch</label>
+      <select id="limitSelect">
+        <option value="20">Top 20</option>
+        <option value="50" selected>Top 50</option>
+        <option value="100">Top 100</option>
+      </select>
+    </div>
+    <div class="ctrl-group">
+      <label>Max reviews</label>
+      <input type="number" id="maxReviews" placeholder="Any" min="0" value="">
+    </div>
+    <div class="ctrl-group">
+      <label>Price range (₹)</label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <input type="number" id="minPrice" placeholder="Min" min="0" style="width:80px">
+        <span style="color:#64748b">–</span>
+        <input type="number" id="maxPrice" placeholder="Max" min="0" style="width:80px">
+      </div>
+    </div>
+    <div class="ctrl-group" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <div class="check-group">
+        <input type="checkbox" id="hideAmazon">
+        <label for="hideAmazon">Hide Amazon products</label>
+      </div>
+    </div>
+    <div class="ctrl-group" style="justify-content:flex-end">
+      <label>&nbsp;</label>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="runResearch(false)">🔍 Research</button>
+        <button class="btn btn-secondary" onclick="runResearch(true)" title="Bypass cache">↺ Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="summary" id="summaryCards" style="display:none">
+    <div class="sc"><div class="val" id="sTotal">—</div><div class="lbl">Products Found</div></div>
+    <div class="sc green"><div class="val" id="sBuy">—</div><div class="lbl">BUY Opportunities</div></div>
+    <div class="sc amber"><div class="val" id="sAnalyse">—</div><div class="lbl">Worth Analysing</div></div>
+    <div class="sc"><div class="val" id="sAvgPrice">—</div><div class="lbl">Avg Price</div></div>
+    <div class="sc"><div class="val" id="sAvgReviews">—</div><div class="lbl">Avg Reviews</div></div>
+    <div class="sc red"><div class="val" id="sAmazonPct">—</div><div class="lbl">Amazon Competing</div></div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loadingDiv">
+    <div class="spinner"></div>
+    <div>Fetching product data from Keepa…</div>
+    <div style="font-size:12px;color:#475569;margin-top:6px">This may take 5–15 seconds on first load</div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap" id="tableWrap" style="display:none">
+    <div class="table-meta">
+      <h2>Results</h2>
+      <span class="hint" id="tableMeta"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortTable('rank')" data-col="rank">#</th>
+          <th onclick="sortTable('title')" data-col="title">Product</th>
+          <th onclick="sortTable('price')" data-col="price" class="num">Price</th>
+          <th onclick="sortTable('bsr')" data-col="bsr" class="num">BSR</th>
+          <th onclick="sortTable('reviews')" data-col="reviews" class="num">Reviews</th>
+          <th onclick="sortTable('amazon_competing')" data-col="amazon_competing">Amazon?</th>
+          <th onclick="sortTable('monthly_sales_est')" data-col="monthly_sales_est" class="num">Est. Sales/mo</th>
+          <th onclick="sortTable('opportunity')" data-col="opportunity">Signal</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+
+  <!-- Profitability calculator -->
+  <div class="calc-panel" id="calcPanel">
+    <h2>💰 Profitability Calculator</h2>
+    <p>Quick margin check — fill in your numbers to see if a product is worth sourcing.</p>
+    <div class="calc-grid">
+      <div class="calc-row">
+        <label>Selling Price (₹)  <span id="calcPriceHint" style="color:#3b82f6;font-weight:400"></span></label>
+        <input type="number" id="calcSell" placeholder="e.g. 799" min="0" oninput="calcProfit()">
+      </div>
+      <div class="calc-row">
+        <label>Sourcing Cost (₹)</label>
+        <input type="number" id="calcCost" placeholder="e.g. 250" min="0" oninput="calcProfit()">
+      </div>
+      <div class="calc-row">
+        <label>FBA Fee (₹) <span id="calcFbaHint" style="color:#3b82f6;font-weight:400"></span></label>
+        <input type="number" id="calcFba" placeholder="e.g. 60" min="0" oninput="calcProfit()">
+      </div>
+      <div class="calc-row">
+        <label>Referral % (default 9% for Toys)</label>
+        <input type="number" id="calcRef" value="9" min="0" max="30" step="0.5" oninput="calcProfit()">
+      </div>
+      <div class="calc-result">
+        <div class="calc-result-grid" id="calcResultGrid">
+          <div class="calc-item"><div class="val neutral" id="crReferral">—</div><div class="lbl">Referral Fee</div></div>
+          <div class="calc-divider"></div>
+          <div class="calc-item"><div class="val neutral" id="crRevenue">—</div><div class="lbl">Net Revenue</div></div>
+          <div class="calc-item pos"><div class="val" id="crProfit">—</div><div class="lbl">Profit</div></div>
+          <div class="calc-item"><div class="val neutral" id="crMargin">—</div><div class="lbl">Margin %</div></div>
+          <div class="calc-item"><div class="val neutral" id="crROI">—</div><div class="lbl">ROI %</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /.page -->
+
+<script>
+// ──────────────────────────────────────────────────────────
+// Config
+// ──────────────────────────────────────────────────────────
+const getAPIBase = () => {
+  const u = new URL(window.location.href);
+  if (u.pathname.includes('/ui/')) return u.origin;
+  if (u.hostname.includes('app.github.dev'))
+    return `${u.protocol}//${u.hostname.replace(/-\d+\./, '-8000.')}`;
+  if (u.port === '8080') return 'http://localhost:8000';
+  return u.origin;
+};
+const API_BASE = getAPIBase();
+
+// ──────────────────────────────────────────────────────────
+// State
+// ──────────────────────────────────────────────────────────
+let _allProducts = [];       // full unfiltered result
+let _displayed = [];         // after client-side filters
+let _sortCol = 'rank';
+let _sortDir = 1;            // 1 = asc, -1 = desc
+let _selectedAsin = null;
+
+// ──────────────────────────────────────────────────────────
+// Init
+// ──────────────────────────────────────────────────────────
+async function init() {
+  try {
+    const r = await fetch(`${API_BASE}/category/analysis`);
+    if (!r.ok) throw new Error('Failed to load categories');
+    const d = await r.json();
+    const sel = document.getElementById('categorySelect');
+    (d.opportunities || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.category_id;
+      opt.textContent = `${c.name}  —  ${c.products.toLocaleString()} products`;
+      sel.appendChild(opt);
+    });
+    setStatus('Ready');
+  } catch(e) {
+    showError('Could not load categories: ' + e.message);
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+// Research
+// ──────────────────────────────────────────────────────────
+async function runResearch(forceRefresh = false) {
+  const catId = document.getElementById('categorySelect').value;
+  if (!catId) { showError('Please select a category first.'); return; }
+  hideError();
+
+  const limit = document.getElementById('limitSelect').value;
+  const url = `${API_BASE}/category/${catId}/research?limit=${limit}${forceRefresh ? '&force_refresh=1' : ''}`;
+
+  showLoading(true);
+  setStatus('Fetching…');
+  document.getElementById('tableWrap').style.display = 'none';
+  document.getElementById('summaryCards').style.display = 'none';
+
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${r.status}`);
+    }
+    const d = await r.json();
+    _allProducts = d.products || [];
+    setStatus(`Loaded ${_allProducts.length} products in ${d.elapsed}s`);
+    applyFiltersAndRender();
+  } catch(e) {
+    showError('Error loading data: ' + e.message);
+    setStatus('Error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+// Filter + render
+// ──────────────────────────────────────────────────────────
+function applyFiltersAndRender() {
+  const hideAz = document.getElementById('hideAmazon').checked;
+  const maxRev = parseInt(document.getElementById('maxReviews').value) || Infinity;
+  const minP   = parseFloat(document.getElementById('minPrice').value) || 0;
+  const maxP   = parseFloat(document.getElementById('maxPrice').value) || Infinity;
+
+  _displayed = _allProducts.filter(p => {
+    if (hideAz && p.amazon_competing) return false;
+    if (p.reviews !== null && p.reviews > maxRev) return false;
+    if (p.price !== null && (p.price < minP || p.price > maxP)) return false;
+    return true;
+  });
+
+  renderSummary(_displayed);
+  renderTable(_displayed);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  ['hideAmazon','maxReviews','minPrice','maxPrice'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      if (_allProducts.length) applyFiltersAndRender();
+    });
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// Summary cards
+// ──────────────────────────────────────────────────────────
+function renderSummary(products) {
+  const cards = document.getElementById('summaryCards');
+  cards.style.display = 'grid';
+
+  const buy = products.filter(p => p.opportunity.label === 'BUY ✓').length;
+  const analyse = products.filter(p => p.opportunity.label === 'ANALYSE').length;
+  const azComp = products.filter(p => p.amazon_competing).length;
+  const prices = products.filter(p => p.price).map(p => p.price);
+  const revs   = products.filter(p => p.reviews !== null).map(p => p.reviews);
+  const avgP = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : null;
+  const avgR = revs.length   ? Math.round(revs.reduce((a,b)=>a+b,0)/revs.length) : null;
+
+  document.getElementById('sTotal').textContent = products.length;
+  document.getElementById('sBuy').textContent = buy;
+  document.getElementById('sAnalyse').textContent = analyse;
+  document.getElementById('sAvgPrice').textContent = avgP ? `₹${avgP.toLocaleString()}` : '—';
+  document.getElementById('sAvgReviews').textContent = avgR !== null ? avgR.toLocaleString() : '—';
+  document.getElementById('sAmazonPct').textContent = `${azComp} products`;
+}
+
+// ──────────────────────────────────────────────────────────
+// Table rendering
+// ──────────────────────────────────────────────────────────
+function renderTable(products) {
+  const wrap = document.getElementById('tableWrap');
+  const tbody = document.getElementById('tableBody');
+  const meta = document.getElementById('tableMeta');
+
+  if (!products.length) {
+    wrap.style.display = 'none';
+    showEmpty(); return;
+  }
+  wrap.style.display = '';
+  meta.textContent = `${products.length} products shown — sorted by ${_sortCol}`;
+
+  // Sort
+  const col = _sortCol;
+  const sorted = [...products].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (col === 'opportunity') { va = a.opportunity.label; vb = b.opportunity.label; }
+    if (col === 'reviews' || col === 'bsr' || col === 'monthly_sales_est' || col === 'price') {
+      va = va ?? (col === 'bsr' ? Infinity : -Infinity);
+      vb = vb ?? (col === 'bsr' ? Infinity : -Infinity);
+    }
+    if (typeof va === 'string') return _sortDir * va.localeCompare(vb);
+    return _sortDir * (va - vb);
+  });
+
+  tbody.innerHTML = '';
+  sorted.forEach(p => tbody.appendChild(buildRow(p)));
+
+  // Sort arrows
+  document.querySelectorAll('th[data-col]').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    if (th.dataset.col === col) th.classList.add(_sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+
+function buildRow(p) {
+  const tr = document.createElement('tr');
+
+  // ── BSR badge
+  let bsrClass = 'bsr-cold';
+  if (p.bsr && p.bsr <= 5000)  bsrClass = 'bsr-hot';
+  else if (p.bsr && p.bsr <= 20000) bsrClass = 'bsr-warm';
+  const bsrHtml = p.bsr
+    ? `<span class="bsr-badge ${bsrClass}">${p.bsr.toLocaleString()}</span>`
+    : `<span style="color:#475569">—</span>`;
+
+  // ── Price trend
+  const trendIcon = p.price_trend === 'up' ? '<span class="trend-up">▲</span>'
+                  : p.price_trend === 'down' ? '<span class="trend-down">▼</span>'
+                  : '<span class="trend-stable">—</span>';
+  const priceHtml = p.price
+    ? `<div class="price-main">₹${p.price.toLocaleString()} ${trendIcon}</div>
+       ${p.price_30d_avg ? `<div class="price-avg">30d avg ₹${p.price_30d_avg.toLocaleString()}</div>` : ''}`
+    : `<span style="color:#475569">—</span>`;
+
+  // ── Reviews
+  let revClass = '';
+  if (p.reviews !== null) {
+    if (p.reviews <= 200) revClass = 'rev-low';
+    else if (p.reviews <= 1000) revClass = 'rev-med';
+    else revClass = 'rev-high';
+  }
+  const starsHtml = p.rating
+    ? `<span class="stars">${'★'.repeat(Math.round(p.rating))}${'☆'.repeat(5-Math.round(p.rating))}</span><span style="font-size:11px;color:#94a3b8"> ${p.rating}</span>`
+    : '';
+  const revHtml = p.reviews !== null
+    ? `${starsHtml}<br><span class="${revClass}" style="font-size:12px">${p.reviews.toLocaleString()} reviews</span>`
+    : `<span style="color:#475569">—</span>`;
+
+  // ── Amazon badge
+  const azHtml = p.amazon_competing
+    ? `<span class="az-badge az-yes">⚠ YES</span>`
+    : `<span class="az-badge az-no">✓ NO</span>`;
+
+  // ── Sales estimate
+  const salesHtml = p.monthly_sales_est
+    ? `<span class="sales-est">~${p.monthly_sales_est.toLocaleString()}/mo</span>`
+    : `<span class="sales-na">—</span>`;
+
+  // ── Opportunity badge
+  const opp = p.opportunity;
+  const oppHtml = `<span class="opp-badge" style="background:${opp.color}22;color:${opp.color};border:1px solid ${opp.color}44" title="${opp.reason}">${opp.label}</span>`;
+
+  // ── Title & brand
+  const titleText = p.title.startsWith('ASIN ') ? `<span style="color:#475569;font-style:italic">Title not available</span>` : escHtml(p.title);
+  const brandHtml = p.brand ? `<span class="brand-tag">${escHtml(p.brand)}</span>` : '';
+  const noDataTag = !p.has_data ? `<span class="no-data-tag">no Keepa data</span>` : '';
+
+  tr.innerHTML = `
+    <td><span class="rank-num">${p.rank}</span></td>
+    <td>
+      <div class="prod-cell">
+        <div class="prod-title">${titleText}</div>
+        <div class="prod-meta">
+          <a href="https://www.amazon.in/dp/${p.asin}" target="_blank" class="asin-link">${p.asin} ↗</a>
+          ${brandHtml}${noDataTag}
+        </div>
+      </div>
+    </td>
+    <td class="num price-cell">${priceHtml}</td>
+    <td class="num">${bsrHtml}</td>
+    <td class="num">${revHtml}</td>
+    <td>${azHtml}</td>
+    <td class="num">${salesHtml}</td>
+    <td>${oppHtml}</td>
+    <td>
+      <div class="action-cell">
+        <button class="btn btn-secondary btn-sm" onclick="prefillCalc('${p.asin}',${p.price||0},${p.fba_fee||0})" title="Open in calculator">₹ Calc</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyAsin('${p.asin}')" title="Copy ASIN">Copy</button>
+      </div>
+    </td>
+  `;
+  return tr;
+}
+
+// ──────────────────────────────────────────────────────────
+// Sort
+// ──────────────────────────────────────────────────────────
+function sortTable(col) {
+  if (_sortCol === col) _sortDir *= -1;
+  else { _sortCol = col; _sortDir = col === 'bsr' || col === 'rank' ? 1 : -1; }
+  renderTable(_displayed);
+}
+
+// ──────────────────────────────────────────────────────────
+// Profitability calculator
+// ──────────────────────────────────────────────────────────
+function prefillCalc(asin, price, fbaFee) {
+  _selectedAsin = asin;
+  if (price) document.getElementById('calcSell').value = price;
+  if (fbaFee) document.getElementById('calcFba').value = fbaFee;
+  document.getElementById('calcPriceHint').textContent = price ? `(from ${asin})` : '';
+  document.getElementById('calcFbaHint').textContent = fbaFee ? `(Keepa estimate)` : '';
+  document.getElementById('calcPanel').scrollIntoView({behavior:'smooth'});
+  calcProfit();
+}
+
+function calcProfit() {
+  const sell = parseFloat(document.getElementById('calcSell').value) || 0;
+  const cost = parseFloat(document.getElementById('calcCost').value) || 0;
+  const fba  = parseFloat(document.getElementById('calcFba').value) || 0;
+  const ref  = parseFloat(document.getElementById('calcRef').value) || 9;
+
+  if (!sell) {
+    ['crReferral','crRevenue','crProfit','crMargin','crROI'].forEach(id => {
+      document.getElementById(id).textContent = '—';
+    });
+    return;
+  }
+
+  const referralFee = round2(sell * ref / 100);
+  const totalCosts  = cost + fba + referralFee;
+  const profit      = round2(sell - totalCosts);
+  const margin      = sell > 0 ? round2((profit / sell) * 100) : 0;
+  const roi         = cost > 0 ? round2((profit / cost) * 100) : null;
+
+  document.getElementById('crReferral').textContent = `₹${referralFee}`;
+  document.getElementById('crRevenue').textContent = `₹${round2(sell - referralFee - fba)}`;
+  const profitEl = document.getElementById('crProfit');
+  profitEl.textContent = `₹${profit}`;
+  profitEl.className = `val ${profit >= 0 ? '' : 'neg'}`;
+  profitEl.parentElement.className = `calc-item ${profit >= 0 ? 'pos' : 'neg'}`;
+
+  const marginEl = document.getElementById('crMargin');
+  marginEl.textContent = `${margin}%`;
+  marginEl.className = `val ${margin >= 20 ? 'neutral' : ''}`;
+  marginEl.style.color = margin >= 20 ? '#22c55e' : margin >= 10 ? '#f59e0b' : '#ef4444';
+
+  document.getElementById('crROI').textContent = roi !== null ? `${roi}%` : '—';
+}
+
+// ──────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────
+function round2(n) { return Math.round(n * 100) / 100; }
+function escHtml(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function copyAsin(asin) {
+  navigator.clipboard.writeText(asin).then(() => setStatus(`Copied ${asin}`));
+}
+function showLoading(v) { document.getElementById('loadingDiv').style.display = v ? 'block' : 'none'; }
+function showEmpty() { /* table hidden already */ }
+function setStatus(s) { document.getElementById('statusText').textContent = s; }
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg; el.style.display = 'block';
+}
+function hideError() { document.getElementById('errorMsg').style.display = 'none'; }
+
+// ──────────────────────────────────────────────────────────
+// Boot
+// ──────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
